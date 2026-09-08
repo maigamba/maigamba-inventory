@@ -1,0 +1,8 @@
+{
+  "name": "Maigamba Inventory",
+  "description": "Maigamba Computer Technology Inventory and Sales Management System",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

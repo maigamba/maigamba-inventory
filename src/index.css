@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+body {
+  background-color: #fcfaf7;
+  color: #1a1a1a;
+  font-family: var(--font-sans);
+}
+
+/* Editorial aesthetic custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f4f0ea;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(26, 26, 26, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 26, 26, 0.4);
+}
+
+/* Card stat hover flopping tactile animation */
+.stat-card-flop {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease, border-color 0.25s ease;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.stat-card-flop:hover {
+  transform: perspective(900px) translateY(-6px) rotateX(4deg) rotateY(-2.5deg) scale(1.02);
+  box-shadow: 0 20px 30px -10px rgba(0, 0, 0, 0.14), 0 6px 14px -4px rgba(0, 0, 0, 0.08);
+  border-color: rgba(26, 26, 26, 0.4);
+}
+
+/* Print-friendly rules for completed transactions and receipts */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide app chrome, sidebar, navigation, search inputs, toasts */
+  nav,
+  aside,
+  header,
+  #sidebar,
+  .print-hide,
+  .no-print,
+  button,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  #printable-receipt-modal,
+  #printable-invoice-container,
+  #invoice-document,
+  #receipt-document {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+
+  @page {
+    margin: 6mm;
+    size: auto;
+  }
+}
