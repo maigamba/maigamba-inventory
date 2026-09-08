@@ -176,384 +176,413 @@ export const StockMovementsView: React.FC = () => {
     ).trim();
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-black/10">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-serif font-bold text-[#1a1a1a] tracking-tight">
-              Stock Movement Ledger
-            </h2>
-            <span className="px-2 py-0.5 rounded-sm bg-[#f4f0ea] border border-black/10 text-[9px] uppercase tracking-wider font-mono text-black/60">
-              Inventory Audit
-            </span>
+    <div className="min-h-full bg-slate-50/70">
+      <div className="mx-auto max-w-[1600px] p-4 sm:p-6 lg:p-8 space-y-6">
+        {/* Header */}
+        <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                <Activity className="h-4.5 w-4.5" />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-600">
+                Inventory Control
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-950">
+              Stock Movements
+            </h1>
+            <p className="mt-1 max-w-3xl text-sm text-slate-500">
+              Review the real-time inventory movement ledger for purchases, sales, returns,
+              adjustments, and stock corrections.
+            </p>
           </div>
 
-          <p className="text-xs text-black/60 font-light mt-1 max-w-3xl">
-            Immutable inventory movement history for purchases, sales,
-            returns, stock adjustments, and other quantity changes.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => refreshStockMovements()}
-          disabled={isLoading}
-          className="self-start lg:self-auto px-3.5 py-2.5 rounded-sm border border-black/15 bg-white hover:bg-[#f4f0ea] text-[#1a1a1a] shadow-xs flex items-center gap-2 text-[10px] uppercase tracking-wider font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <RotateCw
-            className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''
-              }`}
-          />
-          <span>Refresh Ledger</span>
-        </button>
-      </div>
-
-      {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-black/10 rounded-sm p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.15em] text-black/50 font-semibold">
-              Total Movements
-            </span>
-            <Activity className="w-4 h-4 text-black/50" />
-          </div>
-          <div className="mt-2 text-2xl font-serif font-bold text-[#1a1a1a]">
-            {totalMovements.toLocaleString()}
-          </div>
-          <p className="text-[10px] text-black/40 mt-1">
-            All recorded inventory events
-          </p>
-        </div>
-
-        <div className="bg-white border border-emerald-200 rounded-sm p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.15em] text-emerald-700 font-semibold">
-              Inbound
-            </span>
-            <ArrowDownLeft className="w-4 h-4 text-emerald-700" />
-          </div>
-          <div className="mt-2 text-2xl font-serif font-bold text-emerald-800">
-            {inboundCount.toLocaleString()}
-          </div>
-          <p className="text-[10px] text-black/40 mt-1">
-            Purchases, returns, found & initial stock
-          </p>
-        </div>
-
-        <div className="bg-white border border-rose-200 rounded-sm p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.15em] text-rose-700 font-semibold">
-              Outbound
-            </span>
-            <ArrowUpRight className="w-4 h-4 text-rose-700" />
-          </div>
-          <div className="mt-2 text-2xl font-serif font-bold text-rose-800">
-            {outboundCount.toLocaleString()}
-          </div>
-          <p className="text-[10px] text-black/40 mt-1">
-            Sales, issues, losses & reductions
-          </p>
-        </div>
-      </div>
-
-      {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-sm border border-black/10 shadow-xs">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="w-4 h-4 text-black/50" />
-          <span className="text-[10px] uppercase tracking-[0.15em] font-semibold text-black/60">
-            Filter Ledger
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-black/40 pointer-events-none" />
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search product, movement, reference, notes..."
-              className="w-full pl-9 pr-3 py-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:outline-none focus:ring-1 focus:ring-black text-[#1a1a1a] text-xs"
-            />
-          </div>
-
-          <select
-            value={typeFilter}
-            onChange={(event) => setTypeFilter(event.target.value)}
-            className="w-full py-2.5 px-3 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:outline-none focus:ring-1 focus:ring-black text-[#1a1a1a] text-xs"
+          <button
+            type="button"
+            onClick={() => refreshStockMovements()}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 lg:self-auto"
           >
-            <option value="ALL">All Movement Types</option>
-            {movementTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
+            <RotateCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh Ledger
+          </button>
+        </section>
 
-          <select
-            value={productFilter}
-            onChange={(event) => setProductFilter(event.target.value)}
-            className="w-full py-2.5 px-3 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:outline-none focus:ring-1 focus:ring-black text-[#1a1a1a] text-xs"
+        {/* KPI cards */}
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('');
+              setTypeFilter('ALL');
+              setProductFilter('ALL');
+            }}
+            className="group rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
           >
-            <option value="ALL">All Products</option>
-            {products.map((product) => (
-              <option
-                key={product.ProductID}
-                value={product.ProductID}
-              >
-                {product.ProductName}
-              </option>
-            ))}
-          </select>
-        </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Total Movements
+                </p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+                  {totalMovements.toLocaleString()}
+                </p>
+              </div>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition group-hover:scale-105">
+                <Activity className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">All recorded inventory events</p>
+          </button>
 
-        <div className="mt-3 flex items-center justify-between text-[10px] text-black/40 font-mono">
-          <span>
-            Showing {filteredMovements.length.toLocaleString()} of{' '}
-            {totalMovements.toLocaleString()} movement records
-          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const inbound = movementTypes.find(type =>
+                /purchase|return|found|initial|in/i.test(type)
+              );
+              setTypeFilter(inbound || 'ALL');
+            }}
+            className="group rounded-2xl border border-emerald-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
+                  Inbound
+                </p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-emerald-700">
+                  {inboundCount.toLocaleString()}
+                </p>
+              </div>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 transition group-hover:scale-105">
+                <ArrowDownLeft className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">
+              Purchases, returns, found and initial stock
+            </p>
+          </button>
 
-          {(search || typeFilter !== 'ALL' || productFilter !== 'ALL') && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearch('');
-                setTypeFilter('ALL');
-                setProductFilter('ALL');
-              }}
-              className="text-black/60 hover:text-black underline underline-offset-2"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-      </div>
+          <button
+            type="button"
+            onClick={() => {
+              const outbound = movementTypes.find(type =>
+                /sale|issue|damage|loss|out|reduction/i.test(type)
+              );
+              setTypeFilter(outbound || 'ALL');
+            }}
+            className="group rounded-2xl border border-rose-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-rose-600">
+                  Outbound
+                </p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-rose-700">
+                  {outboundCount.toLocaleString()}
+                </p>
+              </div>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-600 transition group-hover:scale-105">
+                <ArrowUpRight className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">
+              Sales, issues, losses and reductions
+            </p>
+          </button>
+        </section>
 
-      {/* Ledger */}
-      <div className="bg-white rounded-sm border border-black/10 shadow-xs overflow-hidden">
-        <div className="px-4 py-3 border-b border-black/10 bg-[#fcfaf7] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-black/60" />
-            <div>
-              <h3 className="text-xs font-serif font-bold text-[#1a1a1a] uppercase tracking-wider">
-                Movement Records
-              </h3>
-              <p className="text-[10px] text-black/40 mt-0.5">
-                Read-only audit trail from PostgreSQL.
-              </p>
+        {/* Filter area */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-slate-50/70 px-5 py-4">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-slate-500" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Filter movement ledger</h2>
+                <p className="text-xs text-slate-500">
+                  Narrow results by product, movement type, reference, or notes.
+                </p>
+              </div>
             </div>
           </div>
 
-          <RefreshCw
-            className={`w-4 h-4 text-black/25 ${isLoading ? 'animate-spin' : ''
-              }`}
-          />
-        </div>
+          <div className="p-4 sm:p-5">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.5fr_1fr_1fr]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search product, movement ID, reference, notes..."
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                />
+              </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-[#f4f0ea] border-b border-black/10 text-black/60 font-semibold uppercase tracking-[0.12em] text-[9px]">
-              <tr>
-                <th className="py-3 px-4 whitespace-nowrap">Date / Time</th>
-                <th className="py-3 px-4">Movement ID</th>
-                <th className="py-3 px-4">Product</th>
-                <th className="py-3 px-4">Type</th>
-                <th className="py-3 px-4 text-center whitespace-nowrap">
-                  Qty Delta
-                </th>
-                <th className="py-3 px-4 text-center whitespace-nowrap">
-                  Previous
-                </th>
-                <th className="py-3 px-4 text-center whitespace-nowrap">
-                  New Qty
-                </th>
-                <th className="py-3 px-4">Reference</th>
-                <th className="py-3 px-4">Reason / Notes</th>
-                <th className="py-3 px-4">Author</th>
-              </tr>
-            </thead>
+              <select
+                value={typeFilter}
+                onChange={(event) => setTypeFilter(event.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+              >
+                <option value="ALL">All Movement Types</option>
+                {movementTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
 
-            <tbody className="divide-y divide-black/5 text-black/80">
-              {isLoading && movements.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={10}
-                    className="py-14 text-center text-black/40"
+              <select
+                value={productFilter}
+                onChange={(event) => setProductFilter(event.target.value)}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+              >
+                <option value="ALL">All Products</option>
+                {products.map((product) => (
+                  <option
+                    key={product.ProductID}
+                    value={product.ProductID}
                   >
-                    <div className="flex flex-col items-center gap-2">
-                      <RotateCw className="w-7 h-7 animate-spin text-black/25" />
-                      <span className="text-xs font-semibold text-black/50">
-                        Loading movement ledger...
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ) : filteredMovements.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={10}
-                    className="py-14 text-center text-black/40"
-                  >
-                    <Activity className="w-8 h-8 text-black/20 mx-auto mb-2" />
-                    <p className="font-semibold text-black/60">
-                      No stock movements found
-                    </p>
-                    <p className="text-[10px] mt-1">
-                      Adjust the filters or create an inventory movement.
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                filteredMovements.map((movement, index) => {
-                  const quantity = parseNumber(movement.Quantity);
-                  const movementType = String(
-                    movement.MovementType ?? ''
-                  ).trim();
+                    {product.ProductName}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                  const normalizedMovementType = movementType.toLowerCase();
-                  const isOutbound =
-                    normalizedMovementType.includes('sale') ||
-                    normalizedMovementType.includes('issue') ||
-                    normalizedMovementType.includes('damage') ||
-                    normalizedMovementType.includes('loss') ||
-                    normalizedMovementType.includes('out') ||
-                    normalizedMovementType.includes('reduction');
+            <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Showing <strong className="text-slate-800">{filteredMovements.length.toLocaleString()}</strong>{' '}
+                of <strong className="text-slate-800">{totalMovements.toLocaleString()}</strong> records
+              </span>
 
-                  const isInbound =
-                    normalizedMovementType.includes('purchase') ||
-                    normalizedMovementType.includes('return') ||
-                    normalizedMovementType.includes('found') ||
-                    normalizedMovementType.includes('initial') ||
-                    normalizedMovementType.includes('in');
-
-                  // StockMovement.Quantity is stored as an absolute quantity.
-                  // Prefer the movement type to determine direction. This is
-                  // important for sales because their stored Quantity may be +1
-                  // even though the stock change is -1.
-                  const displayDelta = isOutbound
-                    ? -Math.abs(quantity)
-                    : isInbound
-                      ? Math.abs(quantity)
-                      : quantity;
-
-                  const isPositive = displayDelta > 0;
-
-                  const referenceType = getReferenceType(movement);
-                  const referenceId = getReferenceId(movement);
-                  const dateValue = getMovementDate(movement);
-                  const author = getAuthor(movement);
-                  const rowKey =
-                    movement.MovementID ||
-                    `${movement.ProductID || 'product'}-${dateValue || index}`;
-
-                  return (
-                    <tr
-                      key={rowKey}
-                      className="hover:bg-[#fcfaf7]/70 transition-colors"
-                    >
-                      <td className="py-3 px-4 text-black/60 font-light whitespace-nowrap">
-                        {dateValue ? formatDate(String(dateValue)) : '—'}
-                      </td>
-
-                      <td className="py-3 px-4 font-mono text-[10px] text-black/55 whitespace-nowrap">
-                        {movement.MovementID || '—'}
-                      </td>
-
-                      <td className="py-3 px-4 font-medium text-[#1a1a1a] min-w-[180px]">
-                        <span className="block">
-                          {getProductName(
-                            String(movement.ProductID ?? '')
-                          )}
-                        </span>
-                        <span className="block text-[10px] font-mono text-black/40 font-normal mt-0.5">
-                          {movement.ProductID || '—'}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-sm text-[9px] font-bold uppercase tracking-wider border ${movementType === 'Sale'
-                            ? 'bg-rose-50 text-rose-800 border-rose-200'
-                            : movementType === 'Purchase'
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : movementType === 'Return Restock'
-                                ? 'bg-blue-50 text-blue-800 border-blue-200'
-                                : 'bg-[#f4f0ea] text-black/80 border-black/10'
-                            }`}
-                        >
-                          {isPositive ? (
-                            <ArrowDownLeft className="w-3 h-3" />
-                          ) : (
-                            <ArrowUpRight className="w-3 h-3" />
-                          )}
-                          {movementType || 'Unknown'}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4 text-center font-mono font-bold">
-                        <span
-                          className={
-                            isPositive
-                              ? 'text-emerald-700'
-                              : quantity < 0
-                                ? 'text-rose-700'
-                                : 'text-black/60'
-                          }
-                        >
-                          {displayDelta > 0 ? '+' : ''}
-                          {displayDelta}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4 text-center font-mono text-black/50">
-                        {movement.PreviousQuantity ?? '—'}
-                      </td>
-
-                      <td className="py-3 px-4 text-center font-mono font-bold text-[#1a1a1a]">
-                        {movement.NewQuantity ?? '—'}
-                      </td>
-
-                      <td className="py-3 px-4 font-mono text-[10px] text-black/60 min-w-[150px]">
-                        {referenceId ? (
-                          <>
-                            <span className="block text-[9px] uppercase text-black/35">
-                              {referenceType || 'Reference'}
-                            </span>
-                            <span className="block font-semibold text-[#1a1a1a] mt-0.5 break-all">
-                              {referenceId}
-                            </span>
-                          </>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4 text-black/60 max-w-[260px]">
-                        <span
-                          className="block truncate"
-                          title={
-                            movement.Notes ||
-                            movement.Reason ||
-                            ''
-                          }
-                        >
-                          {movement.Notes ||
-                            movement.Reason ||
-                            '—'}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4 text-black/60 font-light whitespace-nowrap">
-                        {author || 'System'}
-                      </td>
-                    </tr>
-                  );
-                })
+              {(search || typeFilter !== 'ALL' || productFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    setTypeFilter('ALL');
+                    setProductFilter('ALL');
+                  }}
+                  className="font-medium text-blue-600 hover:text-blue-700"
+                >
+                  Clear filters
+                </button>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Ledger */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                <Layers className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">Movement Records</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Read-only inventory audit trail from PostgreSQL.
+                </p>
+              </div>
+            </div>
+            <RefreshCw className={`h-4 w-4 text-slate-300 ${isLoading ? 'animate-spin' : ''}`} />
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1180px] text-left">
+              <thead className="border-b border-slate-200 bg-slate-50/80">
+                <tr>
+                  {[
+                    'Date / Time',
+                    'Movement ID',
+                    'Product',
+                    'Type',
+                    'Qty Delta',
+                    'Previous',
+                    'New Qty',
+                    'Reference',
+                    'Reason / Notes',
+                    'Author',
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      className="px-5 py-3.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100">
+                {isLoading && movements.length === 0 ? (
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <tr key={`skeleton-${index}`}>
+                      {Array.from({ length: 10 }).map((__, cellIndex) => (
+                        <td key={cellIndex} className="px-5 py-4">
+                          <div className="h-4 animate-pulse rounded bg-slate-100" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filteredMovements.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-6 py-16 text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                        <Activity className="h-6 w-6" />
+                      </div>
+                      <h3 className="mt-4 text-sm font-semibold text-slate-800">
+                        No stock movements found
+                      </h3>
+                      <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
+                        Adjust the filters or create an inventory event to populate this ledger.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredMovements.map((movement, index) => {
+                    const quantity = parseNumber(movement.Quantity);
+                    const movementType = String(movement.MovementType ?? '').trim();
+                    const normalizedMovementType = movementType.toLowerCase();
+
+                    const isOutbound =
+                      normalizedMovementType.includes('sale') ||
+                      normalizedMovementType.includes('issue') ||
+                      normalizedMovementType.includes('damage') ||
+                      normalizedMovementType.includes('loss') ||
+                      normalizedMovementType.includes('out') ||
+                      normalizedMovementType.includes('reduction');
+
+                    const isInbound =
+                      normalizedMovementType.includes('purchase') ||
+                      normalizedMovementType.includes('return') ||
+                      normalizedMovementType.includes('found') ||
+                      normalizedMovementType.includes('initial') ||
+                      normalizedMovementType.includes('in');
+
+                    const displayDelta = isOutbound
+                      ? -Math.abs(quantity)
+                      : isInbound
+                        ? Math.abs(quantity)
+                        : quantity;
+
+                    const isPositive = displayDelta > 0;
+                    const referenceType = getReferenceType(movement);
+                    const referenceId = getReferenceId(movement);
+                    const dateValue = getMovementDate(movement);
+                    const author = getAuthor(movement);
+
+                    const rowKey =
+                      movement.MovementID ||
+                      `${movement.ProductID || 'product'}-${dateValue || index}`;
+
+                    const typeClasses = isOutbound
+                      ? 'border-rose-200 bg-rose-50 text-rose-700'
+                      : isInbound
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-100 text-slate-600';
+
+                    return (
+                      <tr
+                        key={rowKey}
+                        className="group transition-colors hover:bg-slate-50/80"
+                      >
+                        <td className="whitespace-nowrap px-5 py-4 text-xs text-slate-500">
+                          {dateValue ? formatDate(String(dateValue)) : '—'}
+                        </td>
+
+                        <td className="whitespace-nowrap px-5 py-4">
+                          <span className="rounded-lg bg-slate-100 px-2.5 py-1 font-mono text-[10px] text-slate-600">
+                            {movement.MovementID || '—'}
+                          </span>
+                        </td>
+
+                        <td className="min-w-[220px] px-5 py-4">
+                          <div className="font-medium text-slate-900">
+                            {getProductName(String(movement.ProductID ?? ''))}
+                          </div>
+                          <div className="mt-1 font-mono text-[10px] text-slate-400">
+                            {movement.ProductID || '—'}
+                          </div>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${typeClasses}`}
+                          >
+                            {isPositive ? (
+                              <ArrowDownLeft className="h-3 w-3" />
+                            ) : (
+                              <ArrowUpRight className="h-3 w-3" />
+                            )}
+                            {movementType || 'Unknown'}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-4 text-center">
+                          <span
+                            className={`font-mono text-sm font-bold ${displayDelta > 0
+                              ? 'text-emerald-600'
+                              : displayDelta < 0
+                                ? 'text-rose-600'
+                                : 'text-slate-500'
+                              }`}
+                          >
+                            {displayDelta > 0 ? '+' : ''}
+                            {displayDelta}
+                          </span>
+                        </td>
+
+                        <td className="px-5 py-4 text-center font-mono text-sm text-slate-500">
+                          {movement.PreviousQuantity ?? '—'}
+                        </td>
+
+                        <td className="px-5 py-4 text-center font-mono text-sm font-bold text-slate-900">
+                          {movement.NewQuantity ?? '—'}
+                        </td>
+
+                        <td className="px-5 py-4">
+                          {referenceId ? (
+                            <div className="min-w-[160px]">
+                              <span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+                                {referenceType || 'Reference'}
+                              </span>
+                              <span className="mt-1 block break-all font-mono text-[10px] font-semibold text-slate-700">
+                                {referenceId}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        <td className="max-w-[280px] px-5 py-4 text-xs text-slate-500">
+                          <span
+                            className="block truncate"
+                            title={movement.Notes || movement.Reason || ''}
+                          >
+                            {movement.Notes || movement.Reason || '—'}
+                          </span>
+                        </td>
+
+                        <td className="whitespace-nowrap px-5 py-4 text-xs text-slate-500">
+                          {author || 'System'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border-t border-slate-200 bg-slate-50/70 px-5 py-3 text-[10px] text-slate-400">
+            Inventory movement records are read-only from this page.
+          </div>
+        </section>
       </div>
     </div>
   );

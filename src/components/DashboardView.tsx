@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { formatCurrency, formatDate, parseNumber } from '../utils/formatters';
 import { getProductImageUrl } from '../utils/productImages';
@@ -6,37 +6,79 @@ import { playCriticalStockAlertChime } from '../utils/audioBeep';
 import { Product } from '../types/inventory';
 import { ActiveTab } from './Sidebar';
 import {
-  Package,
-  TrendingUp,
-  AlertTriangle,
-  Calendar,
-  Users,
-  DollarSign,
-  Truck,
-  Receipt,
-  PieChart,
-  PlusCircle,
-  ShoppingCart,
-  Building2,
-  ArrowRight,
-  RotateCw,
-  Cpu,
-  CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  ArrowUpRight,
   Bell,
-  Volume2,
-  VolumeX,
+  CheckCircle2,
+  ClipboardList,
+  Clock3,
+  Cpu,
+  DollarSign,
   Download,
   Eye,
-  X,
+  Package,
+  PieChart,
+  Plus,
+  RefreshCw,
   ShieldAlert,
-  ExternalLink,
+  ShoppingCart,
+  Truck,
+  Users,
+  Volume2,
+  VolumeX,
+  X,
 } from 'lucide-react';
 
 interface DashboardViewProps {
   onNavigate: (tab: ActiveTab) => void;
   onOpenQuickAction: (action: string) => void;
 }
+
+type RangeKey = '7d' | '30d' | '90d';
+
+const safeDate = (value?: string) => {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const getSaleTotal = (sale: any) =>
+  parseNumber(sale?.TotalAmount ?? sale?.totalAmount ?? 0);
+
+const getSaleDate = (sale: any) =>
+  sale?.SaleDate ?? sale?.saleDate ?? sale?.CreatedAt ?? sale?.createdAt;
+
+const getSaleId = (sale: any) =>
+  String(sale?.SaleID ?? sale?.saleId ?? sale?.id ?? '').trim();
+
+const getSaleInvoice = (sale: any) =>
+  String(sale?.InvoiceNumber ?? sale?.invoiceNumber ?? getSaleId(sale)).trim();
+
+const getSaleCustomerId = (sale: any) =>
+  String(sale?.CustomerID ?? sale?.customerId ?? '').trim();
+
+const getPurchaseTotal = (purchase: any) =>
+  parseNumber(purchase?.TotalAmount ?? purchase?.totalAmount ?? 0);
+
+const getPurchaseDate = (purchase: any) =>
+  purchase?.PurchaseDate ?? purchase?.purchaseDate ?? purchase?.CreatedAt ?? purchase?.createdAt;
+
+const getPurchaseId = (purchase: any) =>
+  String(purchase?.PurchaseID ?? purchase?.purchaseId ?? purchase?.id ?? '').trim();
+
+const getPurchaseNumber = (purchase: any) =>
+  String(purchase?.PurchaseNumber ?? purchase?.purchaseNumber ?? getPurchaseId(purchase)).trim();
+
+const getPurchaseSupplierId = (purchase: any) =>
+  String(purchase?.SupplierID ?? purchase?.supplierId ?? '').trim();
+
+const getPurchaseStatus = (purchase: any) =>
+  String(purchase?.PaymentStatus ?? purchase?.paymentStatus ?? 'Paid').trim();
+
+const currencyCompact = (value: number) =>
+  formatCurrency(value).replace(/\.00$/, '');
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
@@ -49,38 +91,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     products,
     sales,
     purchases,
+    customers,
     getCustomerName,
     getSupplierName,
     refreshDashboard,
   } = useInventory();
 
-  const isDashboardLoading = loading.dashboard;
-  const dashboardError = errors.dashboard;
-
-  // Notification Drawer & Sound State
   const [isAlertDrawerOpen, setIsAlertDrawerOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(false);
+  const [range, setRange] = useState<RangeKey>('30d');
 
-  // Automated Stock Level Evaluation
-  const { outOfStockProducts, criticalLowProducts, allCriticalProducts, totalDeficitCost } = useMemo(() => {
+  const isDashboardLoading = Boolean(loading.dashboard);
+  const dashboardError = errors.dashboard;
+
+  const {
+    outOfStockProducts,
+    criticalLowProducts,
+    allCriticalProducts,
+    totalDeficitCost,
+  } = useMemo(() => {
     const outOfStock: Product[] = [];
     const criticalLow: Product[] = [];
     let totalDeficit = 0;
 
-    products.forEach((p) => {
-      if (p.Status === 'Archived') return;
-      const qty = parseNumber(p.Quantity);
-      const reorder = parseNumber(p.ReorderLevel, 5);
+    products.forEach((product) => {
+      if (product.Status === 'Archived') return;
+
+      const qty = parseNumber(product.Quantity);
+      const reorder = parseNumber(product.ReorderLevel, 5);
+      const cost = parseNumber(product.CostPrice);
 
       if (qty <= 0) {
-        outOfStock.push(p);
-        const cost = parseNumber(p.CostPrice);
-        totalDeficit += reorder * cost;
+        outOfStock.push(product);
+        totalDeficit += Math.max(0, reorder) * cost;
       } else if (qty <= reorder) {
-        criticalLow.push(p);
-        const deficit = Math.max(0, reorder - qty);
-        const cost = parseNumber(p.CostPrice);
-        totalDeficit += deficit * cost;
+        criticalLow.push(product);
+        totalDeficit += Math.max(0, reorder - qty) * cost;
       }
     });
 
@@ -92,26 +138,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [products]);
 
-  // Audio advisory chime
   useEffect(() => {
     if (soundEnabled && allCriticalProducts.length > 0) {
       playCriticalStockAlertChime();
     }
-  }, [soundEnabled, allCriticalProducts.length]);
+  }, [allCriticalProducts.length, soundEnabled]);
 
-  // Export Shortage CSV
   const exportCriticalShortageCSV = () => {
-    const headers = ['Product ID', 'SKU', 'Product Name', 'Current Stock', 'Min Threshold', 'Deficit Units', 'Unit Cost Price', 'Est. Restock Total'];
-    const rows = allCriticalProducts.map((p) => {
-      const current = parseNumber(p.Quantity);
-      const reorder = parseNumber(p.ReorderLevel, 5);
+    const headers = [
+      'Product ID',
+      'SKU',
+      'Product Name',
+      'Current Stock',
+      'Min Threshold',
+      'Deficit Units',
+      'Unit Cost Price',
+      'Est. Restock Total',
+    ];
+
+    const rows = allCriticalProducts.map((product) => {
+      const current = parseNumber(product.Quantity);
+      const reorder = parseNumber(product.ReorderLevel, 5);
       const deficit = Math.max(0, reorder - current);
-      const cost = parseNumber(p.CostPrice);
+      const cost = parseNumber(product.CostPrice);
       const restockCost = deficit * cost;
+
       return [
-        p.ProductID,
-        `"${p.SKU}"`,
-        `"${p.ProductName.replace(/"/g, '""')}"`,
+        product.ProductID,
+        `"${product.SKU}"`,
+        `"${product.ProductName.replace(/"/g, '""')}"`,
         current,
         reorder,
         deficit,
@@ -120,648 +175,877 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       ].join(',');
     });
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows].join('\n');
+
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Hardware_Shortage_Audit_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('href', encodeURI(csvContent));
+    link.setAttribute(
+      'download',
+      `Hardware_Shortage_Audit_${new Date().toISOString().slice(0, 10)}.csv`,
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Use actual API dashboard data
   const totalProducts = dashboard?.products ?? products.length;
   const stockValue = dashboard?.stockValue ?? 0;
   const lowStockCount = allCriticalProducts.length;
   const todaySales = dashboard?.todaySales ?? 0;
-  const totalCustomers = dashboard?.customers ?? 0;
+  const totalCustomers = dashboard?.customers ?? customers.length;
   const totalRevenue = dashboard?.revenue ?? 0;
   const totalPurchases = dashboard?.purchases ?? 0;
   const totalExpenses = dashboard?.expenses ?? 0;
-  const estimatedGrossPosition = dashboard?.estimatedGrossPosition ?? (totalRevenue - totalPurchases - totalExpenses);
+  const estimatedGrossPosition =
+    dashboard?.estimatedGrossPosition ??
+    (totalRevenue - totalPurchases - totalExpenses);
 
-  // Recent 5 sales
-  const recentSales = [...sales].slice(0, 5);
+  const sortedSales = useMemo(
+    () =>
+      [...sales].sort(
+        (a: any, b: any) => safeDate(getSaleDate(b)) - safeDate(getSaleDate(a)),
+      ),
+    [sales],
+  );
 
-  // Recent 5 purchases
-  const recentPurchases = [...purchases].slice(0, 5);
+  const sortedPurchases = useMemo(
+    () =>
+      [...purchases].sort(
+        (a: any, b: any) =>
+          safeDate(getPurchaseDate(b)) - safeDate(getPurchaseDate(a)),
+      ),
+    [purchases],
+  );
+
+  const recentSales = sortedSales.slice(0, 5);
+  const recentPurchases = sortedPurchases.slice(0, 5);
+
+  const rangeDays = range === '7d' ? 7 : range === '90d' ? 90 : 30;
+  const rangeStart = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+
+  const salesInRange = useMemo(
+    () =>
+      sortedSales.filter((sale: any) => {
+        const date = safeDate(getSaleDate(sale));
+        return date >= rangeStart;
+      }),
+    [rangeStart, sortedSales],
+  );
+
+  const salesByCustomer = useMemo(() => {
+    const totals = new Map<
+      string,
+      { customerId: string; amount: number; orders: number }
+    >();
+
+    sales.forEach((sale: any) => {
+      const customerId = getSaleCustomerId(sale);
+      if (!customerId) return;
+
+      const previous = totals.get(customerId) ?? {
+        customerId,
+        amount: 0,
+        orders: 0,
+      };
+
+      previous.amount += getSaleTotal(sale);
+      previous.orders += 1;
+      totals.set(customerId, previous);
+    });
+
+    return [...totals.values()]
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
+  }, [sales]);
+
+  const dailySeries = useMemo(() => {
+    const buckets = new Map<string, number>();
+
+    salesInRange.forEach((sale: any) => {
+      const raw = getSaleDate(sale);
+      if (!raw) return;
+      const date = new Date(raw);
+      if (Number.isNaN(date.getTime())) return;
+      const key = date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+      });
+      buckets.set(key, (buckets.get(key) ?? 0) + getSaleTotal(sale));
+    });
+
+    const entries = [...buckets.entries()].slice(-8);
+    const max = Math.max(...entries.map(([, value]) => value), 1);
+
+    return entries.map(([label, value]) => ({
+      label,
+      value,
+      percent: Math.max(6, Math.round((value / max) * 100)),
+    }));
+  }, [salesInRange]);
+
+  const countryDataAvailable = useMemo(
+    () =>
+      customers.some((customer: any) =>
+        Boolean(customer?.Country ?? customer?.country),
+      ),
+    [customers],
+  );
+
+  const quickActions = [
+    {
+      label: 'New Sale',
+      description: 'Open POS',
+      icon: ShoppingCart,
+      action: () => onOpenQuickAction('new-sale'),
+    },
+    {
+      label: 'New Purchase',
+      description: 'Restock inventory',
+      icon: Truck,
+      action: () => onOpenQuickAction('new-purchase'),
+    },
+    {
+      label: 'Add Product',
+      description: 'Catalog item',
+      icon: Package,
+      action: () => onOpenQuickAction('add-product'),
+    },
+    {
+      label: 'Add Customer',
+      description: 'Create account',
+      icon: Users,
+      action: () => onOpenQuickAction('add-customer'),
+    },
+  ];
 
   return (
-    <div className="p-4 sm:p-8 lg:p-10 space-y-8 max-w-7xl mx-auto">
-      {/* Top Banner / Editorial Header with Photography Backdrop */}
-      <div className="relative bg-[#111111] text-[#fcfaf7] p-8 sm:p-12 border border-black/20 shadow-none overflow-hidden rounded-xs">
-        {/* Subtle hardware circuit / inventory photography backdrop overlay */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center opacity-10 mix-blend-luminosity pointer-events-none"
-          style={{
-            backgroundImage: `url('https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1600&q=80')`
-          }}
-        />
-        <div className="absolute top-0 right-0 w-80 h-full bg-[#252525]/30 -skew-x-12 pointer-events-none" />
-        
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-end justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <span className="w-6 h-[1px] bg-white/40" />
-              <span className="text-[9px] uppercase tracking-[0.35em] text-white/60 font-medium">
-                Volume 26 / Central Command
-              </span>
-            </div>
-            <h2 className="text-2xl sm:text-4xl font-serif tracking-tight text-white font-normal">
-              Inventory & Commercial <span className="italic font-light">Ledger</span>
-            </h2>
-            <p className="text-xs text-white/70 max-w-md font-light leading-relaxed">
-              Enterprise hardware inventory, automated minimum stock surveillance, point of sale register, and real-time asset ledger.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            {allCriticalProducts.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setIsAlertDrawerOpen(true)}
-                className="px-4 py-3 bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-500/40 text-[10px] uppercase tracking-[0.2em] font-semibold flex items-center gap-2 transition-all"
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
-                <span>{allCriticalProducts.length} Stock Alerts</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onNavigate('sales')}
-              className="px-5 py-3 bg-[#fcfaf7] hover:bg-white text-[#1a1a1a] text-[10px] uppercase tracking-[0.2em] font-semibold border border-transparent hover:border-black/20 flex items-center gap-2.5 transition-all shadow-sm"
-            >
-              <ShoppingCart className="w-3.5 h-3.5 text-[#1a1a1a]" />
-              <span>Launch Point of Sale</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Automated Stock Notification System Bar */}
-      {allCriticalProducts.length > 0 ? (
-        <div className="bg-amber-50/90 border border-amber-300/80 p-4 sm:p-5 rounded-xs transition-all text-[#1a1a1a]">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="relative p-2 bg-amber-100 border border-amber-300 rounded-xs text-amber-900 shrink-0 mt-0.5">
-                <ShieldAlert className="w-5 h-5 text-rose-700" />
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-600 rounded-full animate-ping" />
+    <div className="min-h-full bg-slate-50">
+      <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-5 sm:px-6 lg:px-8 xl:px-10">
+        {/* Header */}
+        <section className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-white shadow-sm sm:p-8">
+          <div className="flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                Maigamba Inventory • Operations Center
               </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] uppercase tracking-[0.25em] font-bold text-rose-800">
-                    Automated Stock Alert System
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-300">
-                    {outOfStockProducts.length} Depleted (Zero Qty)
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
-                    {criticalLowProducts.length} Reorder Threshold
-                  </span>
-                </div>
-                <p className="text-xs text-black/75 max-w-2xl font-normal leading-relaxed">
-                  Automated telemetry flagged <span className="font-semibold text-rose-900">{allCriticalProducts.length} hardware products</span> reaching or breaching critical minimum stock reserve levels. Estimated replenishment cost to restore baseline reserves: <span className="font-serif font-bold text-[#1a1a1a]">{formatCurrency(totalDeficitCost)}</span>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
-              <button
-                type="button"
-                onClick={() => setSoundEnabled(!soundEnabled)}
-                className={`p-2 rounded-xs border text-xs transition-colors flex items-center gap-1.5 ${
-                  soundEnabled
-                    ? 'bg-amber-200 border-amber-400 text-amber-900'
-                    : 'bg-white border-black/15 text-black/60 hover:text-black'
-                }`}
-                title={soundEnabled ? 'Stock Chime: Active' : 'Stock Chime: Muted'}
-              >
-                {soundEnabled ? <Volume2 className="w-4 h-4 text-amber-800" /> : <VolumeX className="w-4 h-4" />}
-                <span className="text-[10px] hidden sm:inline">{soundEnabled ? 'Chime On' : 'Muted'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsAlertDrawerOpen(true)}
-                className="px-3 py-2 bg-white hover:bg-[#fcfaf7] border border-black/20 text-[#1a1a1a] text-[10px] uppercase tracking-wider font-semibold rounded-xs flex items-center gap-1.5 shadow-2xs transition-colors"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Review Deficit ({allCriticalProducts.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => onOpenQuickAction('newPurchase')}
-                className="px-3.5 py-2 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] text-[10px] uppercase tracking-wider font-semibold rounded-xs flex items-center gap-1.5 transition-colors"
-              >
-                <Truck className="w-3.5 h-3.5" />
-                <span>Procure Restock</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={exportCriticalShortageCSV}
-                className="p-2 bg-white hover:bg-[#fcfaf7] border border-black/20 text-[#1a1a1a] rounded-xs transition-colors"
-                title="Export Critical Shortage Audit (.CSV)"
-              >
-                <Download className="w-4 h-4 text-black/70" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="p-3.5 bg-white border border-black/10 rounded-xs flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="text-black/70 font-light">
-              <span className="font-semibold text-[#1a1a1a]">Stock Reserve Nominal:</span> All active hardware catalog items exceed minimum safety reorder thresholds.
-            </span>
-          </div>
-          <span className="text-[9px] uppercase tracking-[0.2em] font-mono text-black/40">Surveillance Active</span>
-        </div>
-      )}
-
-      {/* Error alert if dashboard failed */}
-      {dashboardError && (
-        <div className="p-4 bg-[#f4f0ea] border border-black/15 text-[#1a1a1a] flex items-start justify-between gap-3">
-          <div className="flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[10px] uppercase tracking-wider font-bold">System Advisory</p>
-              <p className="text-xs text-black/70">{dashboardError}</p>
-            </div>
-          </div>
-          <button
-            onClick={() => refreshDashboard()}
-            className="text-[10px] uppercase tracking-wider font-semibold underline text-[#1a1a1a] hover:opacity-70"
-          >
-            Retry Sync
-          </button>
-        </div>
-      )}
-
-      {/* Primary KPI Grid with Stat-Card-Flop Hover Animations */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {/* Total Products */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Catalog Volume</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <Package className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-serif text-[#1a1a1a] tracking-tight">
-              {isDashboardLoading ? '...' : totalProducts}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Active line items</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Stock Value */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Asset Valuation</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-2xl font-serif text-[#1a1a1a] tracking-tight">
-              {isDashboardLoading ? '...' : formatCurrency(stockValue)}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Aggregate cost basis</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Low Stock Warning */}
-        <div 
-          onClick={() => allCriticalProducts.length > 0 && setIsAlertDrawerOpen(true)}
-          className={`p-6 border transition-all flex flex-col justify-between stat-card-flop cursor-pointer rounded-xs ${
-            allCriticalProducts.length > 0 
-              ? 'bg-amber-50/60 border-amber-300 hover:border-amber-500' 
-              : 'bg-white border-black/10 hover:border-black/30'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Reorder Alert</span>
-            <div className={`p-1.5 border ${allCriticalProducts.length > 0 ? 'border-amber-400 bg-amber-100 text-amber-900' : 'border-black/10 bg-[#fcfaf7] text-black/40'}`}>
-              <AlertTriangle className={`w-4 h-4 ${allCriticalProducts.length > 0 ? 'text-rose-600' : ''}`} />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className={`text-3xl font-serif tracking-tight ${allCriticalProducts.length > 0 ? 'text-rose-700' : 'text-[#1a1a1a]'}`}>
-              {isDashboardLoading ? '...' : lowStockCount}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">
-                {allCriticalProducts.length > 0 ? 'Breached items (Click details)' : 'Optimal reserves'}
+              <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">
+                Good business starts with a clear view of stock, sales and cash.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                Monitor inventory health, daily sales, procurement activity and
+                customer performance from one operating dashboard.
               </p>
             </div>
-          </div>
-        </div>
 
-        {/* Today's Sales */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Daily Receipts</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <Calendar className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-2xl font-serif text-[#1a1a1a] tracking-tight">
-              {isDashboardLoading ? '...' : formatCurrency(todaySales)}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Recorded today</p>
-            </div>
-          </div>
-        </div>
+            <div className="flex flex-wrap gap-3">
+              {allCriticalProducts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsAlertDrawerOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20"
+                >
+                  <Bell className="h-4 w-4" />
+                  {allCriticalProducts.length} stock alerts
+                </button>
+              )}
 
-        {/* Total Customers */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Client Accounts</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-serif text-[#1a1a1a] tracking-tight">
-              {isDashboardLoading ? '...' : totalCustomers}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Enterprise & retail</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Total Revenue */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Cumulative Sales</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <DollarSign className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-2xl font-serif text-[#1a1a1a] tracking-tight">
-              {isDashboardLoading ? '...' : formatCurrency(totalRevenue)}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Historical invoicing</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Total Purchases */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Procurement Spend</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <Truck className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className="text-2xl font-serif text-[#1a1a1a] tracking-tight">
-              {isDashboardLoading ? '...' : formatCurrency(totalPurchases)}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Supplier order total</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Estimated Gross Position */}
-        <div className="bg-white p-6 border border-black/10 hover:border-black/30 transition-all flex flex-col justify-between stat-card-flop cursor-default rounded-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-black/50 font-medium">Operating Surplus</span>
-            <div className="p-1.5 border border-black/10 bg-[#fcfaf7] text-[#1a1a1a]">
-              <PieChart className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-4">
-            <h3 className={`text-2xl font-serif tracking-tight ${estimatedGrossPosition >= 0 ? 'text-[#1a1a1a]' : 'text-rose-700'}`}>
-              {isDashboardLoading ? '...' : formatCurrency(estimatedGrossPosition)}
-            </h3>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="w-3 h-[1px] bg-black/20" />
-              <p className="text-[10px] uppercase tracking-widest text-black/50">Revenue less outflows</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions Bar */}
-      <div className="bg-white p-6 border border-black/10 shadow-none">
-        <div className="flex items-center gap-3 mb-4">
-          <span className="w-4 h-[1px] bg-black" />
-          <h4 className="text-[10px] uppercase tracking-[0.25em] font-semibold text-black/60">
-            Operations & Actions
-          </h4>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <button
-            type="button"
-            onClick={() => onOpenQuickAction('addProduct')}
-            className="flex flex-col items-center justify-center p-4 border border-black/10 hover:border-black bg-white hover:bg-[#fcfaf7] text-[#1a1a1a] transition-all text-center group"
-          >
-            <PlusCircle className="w-4 h-4 text-[#1a1a1a] mb-2 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase tracking-[0.15em] font-medium">Add Product</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onNavigate('sales')}
-            className="flex flex-col items-center justify-center p-4 border border-black/10 hover:border-black bg-white hover:bg-[#fcfaf7] text-[#1a1a1a] transition-all text-center group"
-          >
-            <ShoppingCart className="w-4 h-4 text-[#1a1a1a] mb-2 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase tracking-[0.15em] font-medium">New Sale / POS</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOpenQuickAction('newPurchase')}
-            className="flex flex-col items-center justify-center p-4 border border-black/10 hover:border-black bg-white hover:bg-[#fcfaf7] text-[#1a1a1a] transition-all text-center group"
-          >
-            <Truck className="w-4 h-4 text-[#1a1a1a] mb-2 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase tracking-[0.15em] font-medium">New Purchase</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOpenQuickAction('addCustomer')}
-            className="flex flex-col items-center justify-center p-4 border border-black/10 hover:border-black bg-white hover:bg-[#fcfaf7] text-[#1a1a1a] transition-all text-center group"
-          >
-            <Users className="w-4 h-4 text-[#1a1a1a] mb-2 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase tracking-[0.15em] font-medium">Add Customer</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOpenQuickAction('addSupplier')}
-            className="flex flex-col items-center justify-center p-4 border border-black/10 hover:border-black bg-white hover:bg-[#fcfaf7] text-[#1a1a1a] transition-all text-center group"
-          >
-            <Building2 className="w-4 h-4 text-[#1a1a1a] mb-2 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase tracking-[0.15em] font-medium">Add Supplier</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOpenQuickAction('addExpense')}
-            className="flex flex-col items-center justify-center p-4 border border-black/10 hover:border-black bg-white hover:bg-[#fcfaf7] text-[#1a1a1a] transition-all text-center group"
-          >
-            <Receipt className="w-4 h-4 text-[#1a1a1a] mb-2 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase tracking-[0.15em] font-medium">Add Expense</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content Two-Column Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recent Sales */}
-        <div className="bg-white p-6 border border-black/10 shadow-none flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-black/10">
-              <div>
-                <span className="text-[9px] uppercase tracking-[0.25em] text-black/40 font-medium">Chronicle</span>
-                <h3 className="text-base font-serif text-[#1a1a1a] tracking-tight font-semibold">Recent Sales Orders</h3>
-              </div>
               <button
                 type="button"
                 onClick={() => onNavigate('sales')}
-                className="text-[10px] uppercase tracking-[0.15em] font-semibold text-[#1a1a1a] hover:underline flex items-center gap-1.5"
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
               >
-                <span>POS Registry</span>
-                <ArrowRight className="w-3 h-3" />
+                <ShoppingCart className="h-4 w-4" />
+                Open POS
               </button>
             </div>
+          </div>
+        </section>
 
-            <div className="divide-y divide-black/5 mt-3">
-              {recentSales.length === 0 ? (
-                <div className="py-8 text-center text-black/40 text-xs font-light">
-                  No sales recorded yet. Process your first sale in POS.
+        {/* Stock alert */}
+        {allCriticalProducts.length > 0 ? (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex gap-3">
+                <div className="mt-0.5 rounded-xl bg-rose-100 p-2.5 text-rose-700">
+                  <ShieldAlert className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-amber-950">
+                      Inventory needs attention
+                    </p>
+                    <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                      {outOfStockProducts.length} out of stock
+                    </span>
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-900">
+                      {criticalLowProducts.length} at reorder level
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm leading-5 text-amber-900/70">
+                    Estimated capital required to restore minimum reserve:
+                    <span className="ml-1 font-semibold text-amber-950">
+                      {formatCurrency(totalDeficitCost)}
+                    </span>
+                    .
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAlertDrawerOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 transition hover:bg-amber-50"
+                >
+                  <Eye className="h-4 w-4" />
+                  Review
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenQuickAction('new-purchase')}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  <Truck className="h-4 w-4" />
+                  Restock
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSoundEnabled((value) => !value)}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-amber-50"
+                  title={soundEnabled ? 'Mute stock alerts' : 'Enable stock alert sound'}
+                >
+                  {soundEnabled ? (
+                    <Volume2 className="h-4 w-4" />
+                  ) : (
+                    <VolumeX className="h-4 w-4" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {soundEnabled ? 'Sound on' : 'Muted'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={exportCriticalShortageCSV}
+                  className="rounded-xl border border-amber-300 bg-white p-2.5 text-slate-700 transition hover:bg-amber-50"
+                  title="Export shortage audit"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl bg-white p-2 text-emerald-600 shadow-sm">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">
+                  Inventory is within safety levels
+                </p>
+                <p className="text-xs text-emerald-900/70">
+                  No active products are currently below their reorder threshold.
+                </p>
+              </div>
+            </div>
+            <span className="hidden text-xs font-semibold text-emerald-700 sm:block">
+              Stock monitoring active
+            </span>
+          </section>
+        )}
+
+        {dashboardError && (
+          <section className="flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 text-rose-600" />
+              <div>
+                <p className="text-sm font-semibold text-rose-950">
+                  Dashboard sync issue
+                </p>
+                <p className="text-sm text-rose-800/80">{dashboardError}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => refreshDashboard()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-3.5 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-200 transition hover:bg-rose-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </button>
+          </section>
+        )}
+
+        {/* KPI cards */}
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              label: 'Total products',
+              value: totalProducts,
+              helper: 'Active catalog items',
+              icon: Package,
+              tone: 'text-blue-600 bg-blue-50',
+            },
+            {
+              label: 'Stock value',
+              value: formatCurrency(stockValue),
+              helper: 'Current cost basis',
+              icon: PieChart,
+              tone: 'text-violet-600 bg-violet-50',
+            },
+            {
+              label: 'Sales today',
+              value: formatCurrency(todaySales),
+              helper: 'Recorded today',
+              icon: DollarSign,
+              tone: 'text-emerald-600 bg-emerald-50',
+            },
+            {
+              label: 'Low stock',
+              value: lowStockCount,
+              helper: lowStockCount ? 'Needs action' : 'Healthy reserves',
+              icon: AlertTriangle,
+              tone: lowStockCount
+                ? 'text-rose-600 bg-rose-50'
+                : 'text-slate-600 bg-slate-100',
+            },
+          ].map((card) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.label}
+                className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-slate-500">{card.label}</p>
+                    <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+                      {isDashboardLoading ? '—' : card.value}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-500">{card.helper}</p>
+                  </div>
+                  <div className={`rounded-xl p-2.5 ${card.tone}`}>
+                    <Icon className="h-5 w-5" />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+
+        {/* Business snapshot */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {[
+            {
+              label: 'Total revenue',
+              value: formatCurrency(totalRevenue),
+              helper: 'Historical invoicing',
+              icon: ArrowUpRight,
+            },
+            {
+              label: 'Procurement spend',
+              value: formatCurrency(totalPurchases),
+              helper: 'Supplier order total',
+              icon: Truck,
+            },
+            {
+              label: 'Operating position',
+              value: formatCurrency(estimatedGrossPosition),
+              helper: 'Revenue less purchases and expenses',
+              icon: ClipboardList,
+              negative: estimatedGrossPosition < 0,
+            },
+          ].map((card) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.label}
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-slate-100 p-2.5 text-slate-700">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate-500">{card.label}</p>
+                    <p
+                      className={`mt-1 text-xl font-semibold ${card.negative ? 'text-rose-700' : 'text-slate-950'
+                        }`}
+                    >
+                      {isDashboardLoading ? '—' : card.value}
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">{card.helper}</p>
+              </div>
+            );
+          })}
+        </section>
+
+        {/* Chart + quick actions */}
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.7fr_0.8fr]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <TrendingIcon />
+                  <h2 className="text-base font-semibold text-slate-950">
+                    Sales activity
+                  </h2>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">
+                  Real sales recorded in the selected period.
+                </p>
+              </div>
+
+              <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                {([
+                  ['7d', '7 days'],
+                  ['30d', '30 days'],
+                  ['90d', '90 days'],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setRange(key)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${range === key
+                      ? 'bg-white text-slate-950 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6">
+              {dailySeries.length === 0 ? (
+                <div className="flex min-h-[210px] items-center justify-center rounded-2xl bg-slate-50">
+                  <div className="text-center">
+                    <ClipboardList className="mx-auto h-8 w-8 text-slate-300" />
+                    <p className="mt-2 text-sm font-medium text-slate-500">
+                      No sales in this period
+                    </p>
+                  </div>
                 </div>
               ) : (
-                recentSales.map((sale) => (
-                  <div key={sale.SaleID} className="py-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-[#1a1a1a] truncate font-mono">
-                        {sale.InvoiceNumber || sale.SaleID}
-                      </p>
-                      <p className="text-[11px] text-black/50">
-                        {getCustomerName(sale.CustomerID)} • {formatDate(sale.SaleDate || sale.CreatedAt)}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-serif font-bold text-[#1a1a1a]">
-                        {formatCurrency(sale.TotalAmount)}
-                      </p>
-                      <span className="inline-block mt-0.5 text-[9px] uppercase tracking-wider font-semibold border border-black/15 px-2 py-0.5 rounded-full bg-[#fcfaf7] text-[#1a1a1a]">
-                        {sale.PaymentStatus || 'Paid'}
+                <div className="grid min-h-[220px] grid-cols-8 items-end gap-2 rounded-2xl bg-slate-50 p-4 sm:gap-3">
+                  {dailySeries.map((point) => (
+                    <div key={point.label} className="flex h-full flex-col items-center justify-end gap-2">
+                      <div className="flex w-full flex-1 items-end">
+                        <div
+                          className="w-full rounded-t-xl bg-slate-900 transition-all hover:bg-blue-600"
+                          style={{ height: `${point.percent}%` }}
+                          title={formatCurrency(point.value)}
+                        />
+                      </div>
+                      <span className="text-[10px] font-medium text-slate-500">
+                        {point.label}
                       </span>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Quick actions
+                </p>
+                <h2 className="mt-1 text-base font-semibold text-slate-950">
+                  Common tasks
+                </h2>
+              </div>
+              <div className="rounded-xl bg-blue-50 p-2.5 text-blue-600">
+                <Plus className="h-5 w-5" />
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-2">
+              {quickActions.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={item.action}
+                    className="group flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                  >
+                    <div className="rounded-lg bg-slate-100 p-2 text-slate-700 transition group-hover:bg-blue-50 group-hover:text-blue-600">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {item.label}
+                      </p>
+                      <p className="text-xs text-slate-500">{item.description}</p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-700" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* Top customers + country */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Customer intelligence
+                </p>
+                <h2 className="mt-1 text-base font-semibold text-slate-950">
+                  Top customers
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Ranked by recorded sales value.
+                </p>
+              </div>
+              <Users className="h-5 w-5 text-slate-400" />
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {salesByCustomer.length === 0 ? (
+                <div className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                  No customer sales data yet.
+                </div>
+              ) : (
+                salesByCustomer.map((entry, index) => (
+                  <div
+                    key={entry.customerId}
+                    className="flex items-center gap-3 rounded-xl border border-slate-100 p-3"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
+                      {index + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {getCustomerName(entry.customerId) || 'Walk-in customer'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {entry.orders} order{entry.orders === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {currencyCompact(entry.amount)}
+                    </p>
                   </div>
                 ))
               )}
             </div>
           </div>
-        </div>
 
-        {/* Low Stock Watchlist with Hardware Photography */}
-        <div className="bg-white p-6 border border-black/10 shadow-none flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-black/10">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <span className="text-[9px] uppercase tracking-[0.25em] text-black/40 font-medium">Inventory Focus</span>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-serif text-[#1a1a1a] tracking-tight font-semibold">Low Stock Watchlist</h3>
-                  {allCriticalProducts.length > 0 && (
-                    <span className="border border-black/20 px-2 py-0.2 rounded-full text-[9px] font-mono font-bold bg-[#1a1a1a] text-white">
-                      {allCriticalProducts.length}
-                    </span>
-                  )}
-                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Buyer geography
+                </p>
+                <h2 className="mt-1 text-base font-semibold text-slate-950">
+                  Top countries of buyers
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  This section will use the real Country field from customer records.
+                </p>
               </div>
-              <div className="flex items-center gap-3">
-                {allCriticalProducts.length > 0 && (
+              <Cpu className="h-5 w-5 text-slate-400" />
+            </div>
+
+            {!countryDataAvailable ? (
+              <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <div className="mx-auto flex max-w-md flex-col items-center text-center">
+                  <div className="rounded-xl bg-white p-3 text-slate-500 shadow-sm">
+                    <ClipboardList className="h-5 w-5" />
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-slate-900">
+                    Country data is not yet configured
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                    Existing customer records do not currently provide a country.
+                    We will add the field to customer records before calculating this
+                    ranking, so no location data is fabricated.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setIsAlertDrawerOpen(true)}
-                    className="text-[10px] uppercase tracking-[0.15em] font-semibold text-rose-700 hover:underline flex items-center gap-1"
+                    onClick={() => onNavigate('customers')}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                   >
-                    <span>Full Audit</span>
-                    <Eye className="w-3 h-3" />
+                    Manage customers
+                    <ArrowRight className="h-4 w-4" />
                   </button>
-                )}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">
+                Country analytics are ready once customer country values are available
+                in the API response.
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Recent activity */}
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <ActivityCard
+            title="Recent sales"
+            eyebrow="Sales"
+            actionLabel="Open sales"
+            onAction={() => onNavigate('sales')}
+          >
+            {recentSales.length === 0 ? (
+              <EmptyActivity icon={ShoppingCart} text="No sales recorded yet." />
+            ) : (
+              recentSales.map((sale: any) => (
+                <div
+                  key={getSaleId(sale)}
+                  className="flex items-center gap-3 border-b border-slate-100 py-3 last:border-0"
+                >
+                  <div className="rounded-xl bg-emerald-50 p-2 text-emerald-600">
+                    <ShoppingCart className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {getSaleInvoice(sale)}
+                    </p>
+                    <p className="truncate text-xs text-slate-500">
+                      {getCustomerName(getSaleCustomerId(sale)) || 'Walk-in customer'} •{' '}
+                      {formatDate(getSaleDate(sale))}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-slate-950">
+                      {formatCurrency(getSaleTotal(sale))}
+                    </p>
+                    <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                      {sale?.PaymentStatus ?? sale?.paymentStatus ?? 'Paid'}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </ActivityCard>
+
+          <ActivityCard
+            title="Recent procurement"
+            eyebrow="Supply chain"
+            actionLabel="Open purchases"
+            onAction={() => onNavigate('purchases')}
+          >
+            {recentPurchases.length === 0 ? (
+              <EmptyActivity icon={Truck} text="No purchases recorded yet." />
+            ) : (
+              recentPurchases.map((purchase: any) => (
+                <div
+                  key={getPurchaseId(purchase)}
+                  className="flex items-center gap-3 border-b border-slate-100 py-3 last:border-0"
+                >
+                  <div className="rounded-xl bg-blue-50 p-2 text-blue-600">
+                    <Truck className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">
+                      {getPurchaseNumber(purchase)}
+                    </p>
+                    <p className="truncate text-xs text-slate-500">
+                      {getSupplierName(getPurchaseSupplierId(purchase)) || 'Supplier not linked'} •{' '}
+                      {formatDate(getPurchaseDate(purchase))}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-slate-950">
+                      {formatCurrency(getPurchaseTotal(purchase))}
+                    </p>
+                    <span className="mt-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                      {getPurchaseStatus(purchase)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </ActivityCard>
+        </section>
+
+        {/* Low stock */}
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                Inventory focus
+              </p>
+              <h2 className="mt-1 text-base font-semibold text-slate-950">
+                Low stock watchlist
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onNavigate('products')}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Open catalog
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              {allCriticalProducts.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => onNavigate('products')}
-                  className="text-[10px] uppercase tracking-[0.15em] font-semibold text-[#1a1a1a] hover:underline flex items-center gap-1.5"
+                  onClick={() => setIsAlertDrawerOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                 >
-                  <span>Catalog</span>
-                  <ArrowRight className="w-3 h-3" />
+                  <AlertTriangle className="h-4 w-4" />
+                  Review {allCriticalProducts.length}
                 </button>
-              </div>
+              )}
             </div>
+          </div>
 
-            <div className="divide-y divide-black/5 mt-3">
-              {allCriticalProducts.length === 0 ? (
-                <div className="py-12 text-center text-black/60 text-xs flex flex-col items-center justify-center gap-2">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-600" />
-                  <span className="font-serif font-semibold text-[#1a1a1a]">Healthy Reserve Levels</span>
-                  <span className="text-[11px] text-black/40 font-light max-w-xs">
-                    All hardware inventory lines exceed minimum safety stock reorder thresholds.
-                  </span>
+          <div className="grid gap-2 p-4 sm:p-5">
+            {allCriticalProducts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl bg-slate-50 px-4 py-12 text-center">
+                <div className="rounded-full bg-emerald-100 p-3 text-emerald-600">
+                  <CheckCircle2 className="h-6 w-6" />
                 </div>
-              ) : (
-                allCriticalProducts.slice(0, 5).map((prod) => {
-                  const qty = parseNumber(prod.Quantity);
-                  const isOut = qty <= 0;
-                  const reorder = parseNumber(prod.ReorderLevel, 5);
-                  const percent = Math.min(100, Math.round((Math.max(0, qty) / Math.max(1, reorder)) * 100));
-                  const imageUrl = getProductImageUrl(prod.ProductImage, prod.ProductName, undefined, prod.Model);
+                <p className="mt-3 text-sm font-semibold text-slate-900">
+                  Healthy reserve levels
+                </p>
+                <p className="mt-1 max-w-md text-sm text-slate-500">
+                  All active hardware products are above their current minimum
+                  reorder levels.
+                </p>
+              </div>
+            ) : (
+              allCriticalProducts.slice(0, 6).map((product) => {
+                const qty = parseNumber(product.Quantity);
+                const reorder = parseNumber(product.ReorderLevel, 5);
+                const percent = Math.min(
+                  100,
+                  Math.round(
+                    (Math.max(0, qty) / Math.max(1, reorder)) * 100,
+                  ),
+                );
+                const isOut = qty <= 0;
+                const imageUrl = getProductImageUrl(
+                  product.ProductImage,
+                  product.ProductName,
+                  undefined,
+                  product.Model,
+                );
 
-                  return (
-                    <div key={prod.ProductID} className="py-3 flex items-center justify-between gap-3 group">
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <img
-                          src={imageUrl}
-                          alt=""
-                          referrerPolicy="no-referrer"
-                          className="w-11 h-11 rounded-xs object-cover border border-black/10 bg-[#f4f0ea] shrink-0 group-hover:scale-105 transition-transform"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-[#1a1a1a] truncate">
-                            {prod.ProductName}
+                return (
+                  <div
+                    key={product.ProductID}
+                    className="flex items-center gap-3 rounded-2xl border border-slate-100 p-3 transition hover:border-slate-200 hover:bg-slate-50"
+                  >
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="h-12 w-12 rounded-xl border border-slate-200 bg-slate-100 object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {product.ProductName}
                           </p>
-                          <div className="flex items-center gap-2 text-[10px] text-black/50 mt-0.5">
-                            <span className="font-mono">{prod.SKU}</span>
-                            <span>•</span>
-                            <span>Min: {reorder}</span>
-                          </div>
-                          {/* Stock ratio meter */}
-                          <div className="w-full bg-[#f4f0ea] h-1.5 rounded-full overflow-hidden mt-1.5 border border-black/5">
-                            <div
-                              className={`h-full transition-all ${
-                                isOut ? 'bg-rose-500' : 'bg-amber-500'
-                              }`}
-                              style={{ width: `${percent}%` }}
-                            />
-                          </div>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {product.SKU} • Minimum {reorder}
+                          </p>
                         </div>
+                        <span
+                          className={`inline-flex w-fit rounded-full px-2.5 py-1 text-[10px] font-semibold ${isOut
+                            ? 'bg-rose-100 text-rose-700'
+                            : 'bg-amber-100 text-amber-800'
+                            }`}
+                        >
+                          {isOut ? 'Out of stock' : `${qty} remaining`}
+                        </span>
                       </div>
 
-                      <div className="text-right shrink-0 space-y-1">
-                        <span className={`inline-block text-[9px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${
-                          isOut ? 'border-rose-300 bg-rose-50 text-rose-800' : 'border-amber-300 bg-amber-50 text-amber-900'
-                        }`}>
-                          {isOut ? 'Depleted (0)' : `${qty} remaining`}
-                        </span>
-                        <div>
-                          <button
-                            type="button"
-                            onClick={() => onOpenQuickAction('newPurchase')}
-                            className="text-[9px] uppercase tracking-wider font-semibold text-black/60 hover:text-black underline"
-                          >
-                            + Reorder
-                          </button>
-                        </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className={`h-full rounded-full ${isOut ? 'bg-rose-500' : 'bg-amber-500'
+                            }`}
+                          style={{ width: `${Math.max(4, percent)}%` }}
+                        />
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Recent Purchases Section */}
-      <div className="bg-white p-6 border border-black/10 shadow-none">
-        <div className="flex items-center justify-between pb-3 border-b border-black/10">
-          <div>
-            <span className="text-[9px] uppercase tracking-[0.25em] text-black/40 font-medium">Supply Chain</span>
-            <h3 className="text-base font-serif text-[#1a1a1a] tracking-tight font-semibold">Recent Hardware Intake & Procurement</h3>
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuickAction('new-purchase')}
+                      className="hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:inline-flex"
+                    >
+                      Reorder
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
-          <button
-            type="button"
+        </section>
+
+        {/* Customer / operations snapshot */}
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <InfoTile
+            icon={Users}
+            title="Customers"
+            value={String(totalCustomers)}
+            description="Active customer accounts"
+            onClick={() => onNavigate('customers')}
+          />
+          <InfoTile
+            icon={Truck}
+            title="Purchases"
+            value={String(purchases.length)}
+            description="Purchase records currently loaded"
             onClick={() => onNavigate('purchases')}
-            className="text-[10px] uppercase tracking-[0.15em] font-semibold text-[#1a1a1a] hover:underline flex items-center gap-1.5"
-          >
-            <span>Procurement Archive</span>
-            <ArrowRight className="w-3 h-3" />
-          </button>
-        </div>
-
-        <div className="overflow-x-auto mt-3">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="text-black/50 border-b border-black/10 text-[9px] uppercase tracking-[0.2em] font-medium">
-                <th className="pb-2.5">Intake Ref #</th>
-                <th className="pb-2.5">Vendor / Supplier</th>
-                <th className="pb-2.5">Log Date</th>
-                <th className="pb-2.5">Invoice Sum</th>
-                <th className="pb-2.5">Payment State</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-black/5 text-[#1a1a1a]">
-              {recentPurchases.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-black/40 font-light">
-                    No purchase intake orders recorded yet.
-                  </td>
-                </tr>
-              ) : (
-                recentPurchases.map((pur) => (
-                  <tr key={pur.PurchaseID} className="hover:bg-[#fcfaf7]">
-                    <td className="py-3 font-mono font-medium text-[#1a1a1a]">{pur.PurchaseNumber || pur.PurchaseID}</td>
-                    <td className="py-3 font-medium">{getSupplierName(pur.SupplierID)}</td>
-                    <td className="py-3 text-black/50">{formatDate(pur.PurchaseDate || pur.CreatedAt)}</td>
-                    <td className="py-3 font-serif font-bold text-[#1a1a1a]">{formatCurrency(pur.TotalAmount)}</td>
-                    <td className="py-3">
-                      <span className="px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider font-semibold border border-black/15 bg-[#fcfaf7] text-black/70">
-                        {pur.PaymentStatus || 'Paid'}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+          />
+          <InfoTile
+            icon={Clock3}
+            title="Last sync"
+            value={loading.dashboard ? 'Syncing…' : 'Live'}
+            description="Dashboard data from the inventory API"
+            onClick={() => refreshDashboard()}
+          />
+        </section>
       </div>
 
-      {/* Critical Stock Deficit Audit Modal Drawer */}
+      {/* Stock audit drawer */}
       {isAlertDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-4xl max-h-[85vh] bg-white rounded-xs shadow-2xl border border-black/20 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            {/* Modal Header */}
-            <div className="p-6 bg-[#1a1a1a] text-white flex items-center justify-between border-b border-black/20">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-rose-950 border border-rose-500/50 rounded-xs text-rose-300">
-                  <ShieldAlert className="w-5 h-5 text-rose-400" />
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Critical stock audit"
+        >
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-h-[88vh] sm:rounded-3xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-950 p-5 text-white sm:p-6">
+              <div className="flex gap-3">
+                <div className="rounded-xl bg-rose-500/10 p-2.5 text-rose-300">
+                  <ShieldAlert className="h-5 w-5" />
                 </div>
                 <div>
-                  <span className="text-[9px] uppercase tracking-[0.3em] text-white/50 font-medium">
-                    Automated Surveillance Telemetry
-                  </span>
-                  <h3 className="text-base font-serif font-bold tracking-tight text-white">
-                    Critical Minimum Stock Deficit Audit ({allCriticalProducts.length} Items)
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    Inventory audit
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold">
+                    Critical stock deficit
                   </h3>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {allCriticalProducts.length} item
+                    {allCriticalProducts.length === 1 ? '' : 's'} need
+                    {allCriticalProducts.length === 1 ? 's' : ''} attention.
+                  </p>
                 </div>
               </div>
 
@@ -769,151 +1053,145 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <button
                   type="button"
                   onClick={exportCriticalShortageCSV}
-                  className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xs text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 transition-colors"
+                  className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/10 sm:inline-flex"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export CSV</span>
+                  <Download className="h-4 w-4" />
+                  Export
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsAlertDrawerOpen(false)}
-                  className="p-1.5 text-white/60 hover:text-white rounded-xs"
+                  className="rounded-xl p-2 text-slate-400 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Close stock audit"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
             </div>
 
-            {/* Financial replenishment summary */}
-            <div className="p-4 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-4 text-xs">
-              <div className="space-y-0.5">
-                <p className="text-[10px] uppercase tracking-wider font-bold text-amber-900">
-                  Total Replenishment Capital Required
-                </p>
-                <p className="text-base font-serif font-bold text-[#1a1a1a]">
-                  {formatCurrency(totalDeficitCost)}
-                </p>
-              </div>
-              <div className="flex items-center gap-4 text-xs text-black/70">
-                <span>
-                  <strong>{outOfStockProducts.length}</strong> Zero Stock Depleted
-                </span>
-                <span>•</span>
-                <span>
-                  <strong>{criticalLowProducts.length}</strong> Safety Threshold Breached
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAlertDrawerOpen(false);
-                  onOpenQuickAction('newPurchase');
-                }}
-                className="px-4 py-2 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] rounded-xs text-[10px] uppercase tracking-wider font-semibold flex items-center gap-1.5 transition-colors"
-              >
-                <Truck className="w-3.5 h-3.5" />
-                <span>Create Purchase Order</span>
-              </button>
+            <div className="grid grid-cols-1 gap-3 border-b border-slate-100 bg-slate-50 p-4 sm:grid-cols-3 sm:p-5">
+              <SummaryMini
+                label="Restock capital"
+                value={formatCurrency(totalDeficitCost)}
+              />
+              <SummaryMini
+                label="Out of stock"
+                value={String(outOfStockProducts.length)}
+              />
+              <SummaryMini
+                label="At threshold"
+                value={String(criticalLowProducts.length)}
+              />
             </div>
 
-            {/* Product Deficit Table */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-black/10 text-black/50 text-[9px] uppercase tracking-[0.2em] font-medium">
-                    <th className="pb-3">Hardware Product</th>
-                    <th className="pb-3 text-center">Status</th>
-                    <th className="pb-3 text-right">Current Stock</th>
-                    <th className="pb-3 text-right">Reorder Limit</th>
-                    <th className="pb-3 text-right">Deficit</th>
-                    <th className="pb-3 text-right">Unit Cost</th>
-                    <th className="pb-3 text-right">Restock Cost</th>
-                    <th className="pb-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black/5">
-                  {allCriticalProducts.map((p) => {
-                    const current = parseNumber(p.Quantity);
-                    const isOut = current <= 0;
-                    const reorder = parseNumber(p.ReorderLevel, 5);
-                    const deficit = Math.max(0, reorder - current);
-                    const cost = parseNumber(p.CostPrice);
-                    const estRestockCost = deficit * cost;
-                    const imgUrl = getProductImageUrl(p.ProductImage, p.ProductName, undefined, p.Model);
+            <div className="flex-1 overflow-auto p-4 sm:p-6">
+              <div className="min-w-[820px] overflow-hidden rounded-2xl border border-slate-200">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Product</th>
+                      <th className="px-4 py-3 font-semibold">Status</th>
+                      <th className="px-4 py-3 text-right font-semibold">Stock</th>
+                      <th className="px-4 py-3 text-right font-semibold">Minimum</th>
+                      <th className="px-4 py-3 text-right font-semibold">Deficit</th>
+                      <th className="px-4 py-3 text-right font-semibold">Unit cost</th>
+                      <th className="px-4 py-3 text-right font-semibold">Restock</th>
+                      <th className="px-4 py-3 text-right font-semibold">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {allCriticalProducts.map((product) => {
+                      const current = parseNumber(product.Quantity);
+                      const reorder = parseNumber(product.ReorderLevel, 5);
+                      const deficit = Math.max(0, reorder - current);
+                      const cost = parseNumber(product.CostPrice);
+                      const isOut = current <= 0;
+                      const imageUrl = getProductImageUrl(
+                        product.ProductImage,
+                        product.ProductName,
+                        undefined,
+                        product.Model,
+                      );
 
-                    return (
-                      <tr key={p.ProductID} className="hover:bg-[#fcfaf7] transition-colors">
-                        <td className="py-3 pr-3">
-                          <div className="flex items-center gap-3">
-                            <img
-                              src={imgUrl}
-                              alt=""
-                              referrerPolicy="no-referrer"
-                              className="w-10 h-10 rounded-xs object-cover border border-black/10 bg-[#f4f0ea] shrink-0"
-                            />
-                            <div className="min-w-0">
-                              <p className="font-semibold text-[#1a1a1a] truncate max-w-xs">{p.ProductName}</p>
-                              <p className="text-[10px] text-black/50 font-mono">SKU: {p.SKU}</p>
+                      return (
+                        <tr
+                          key={product.ProductID}
+                          className="hover:bg-slate-50"
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={imageUrl}
+                                alt=""
+                                referrerPolicy="no-referrer"
+                                className="h-10 w-10 rounded-xl border border-slate-200 object-cover"
+                              />
+                              <div className="min-w-0">
+                                <p className="max-w-xs truncate font-semibold text-slate-900">
+                                  {product.ProductName}
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">
+                                  SKU {product.SKU}
+                                </p>
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-2 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider font-semibold border ${
-                              isOut
-                                ? 'border-rose-300 bg-rose-50 text-rose-800'
-                                : 'border-amber-300 bg-amber-50 text-amber-900'
-                            }`}
-                          >
-                            {isOut ? 'Depleted' : 'Low Stock'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-right font-mono font-bold text-[#1a1a1a]">
-                          {current}
-                        </td>
-                        <td className="py-3 px-2 text-right font-mono text-black/60">
-                          {reorder}
-                        </td>
-                        <td className="py-3 px-2 text-right font-mono font-bold text-rose-700">
-                          +{deficit}
-                        </td>
-                        <td className="py-3 px-2 text-right font-serif text-black/70">
-                          {formatCurrency(cost)}
-                        </td>
-                        <td className="py-3 px-2 text-right font-serif font-bold text-[#1a1a1a]">
-                          {formatCurrency(estRestockCost)}
-                        </td>
-                        <td className="py-3 pl-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsAlertDrawerOpen(false);
-                              onOpenQuickAction('newPurchase');
-                            }}
-                            className="px-2.5 py-1 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] rounded-xs text-[9px] uppercase tracking-wider font-semibold transition-colors inline-flex items-center gap-1"
-                          >
-                            <Truck className="w-3 h-3" />
-                            <span>Procure</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${isOut
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-amber-100 text-amber-800'
+                                }`}
+                            >
+                              {isOut ? 'Depleted' : 'Low stock'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-900">
+                            {current}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-500">
+                            {reorder}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-rose-700">
+                            {deficit}
+                          </td>
+                          <td className="px-4 py-3 text-right text-slate-600">
+                            {formatCurrency(cost)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-950">
+                            {formatCurrency(deficit * cost)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAlertDrawerOpen(false);
+                                onOpenQuickAction('new-purchase');
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                            >
+                              <Truck className="h-3.5 w-3.5" />
+                              Procure
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 bg-[#fcfaf7] border-t border-black/10 flex items-center justify-between text-xs">
-              <span className="text-black/50 text-[11px]">
-                Threshold calculation dynamically synced with real-time catalog quantity.
-              </span>
+            <div className="flex flex-col gap-3 border-t border-slate-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+              <p className="text-xs text-slate-500">
+                Calculations use current product quantity, reorder level and cost price.
+              </p>
               <button
                 type="button"
                 onClick={() => setIsAlertDrawerOpen(false)}
-                className="px-4 py-2 border border-black/15 hover:bg-[#f4f0ea] rounded-xs text-[10px] uppercase tracking-wider font-semibold text-[#1a1a1a]"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                Dismiss
+                Close
               </button>
             </div>
           </div>
@@ -922,3 +1200,91 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     </div>
   );
 };
+
+const TrendingIcon: React.FC = () => (
+  <div className="rounded-lg bg-blue-50 p-1.5 text-blue-600">
+    <ArrowUpRight className="h-4 w-4" />
+  </div>
+);
+
+interface ActivityCardProps {
+  title: string;
+  eyebrow: string;
+  actionLabel: string;
+  onAction: () => void;
+  children: React.ReactNode;
+}
+
+const ActivityCard: React.FC<ActivityCardProps> = ({
+  title,
+  eyebrow,
+  actionLabel,
+  onAction,
+  children,
+}) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <div className="flex items-start justify-between gap-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+          {eyebrow}
+        </p>
+        <h2 className="mt-1 text-base font-semibold text-slate-950">{title}</h2>
+      </div>
+      <button
+        type="button"
+        onClick={onAction}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 transition hover:text-slate-950"
+      >
+        {actionLabel}
+        <ArrowRight className="h-3.5 w-3.5" />
+      </button>
+    </div>
+    <div className="mt-4">{children}</div>
+  </div>
+);
+
+const EmptyActivity: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  text: string;
+}> = ({ icon: Icon, text }) => (
+  <div className="rounded-2xl bg-slate-50 px-4 py-10 text-center">
+    <Icon className="mx-auto h-7 w-7 text-slate-300" />
+    <p className="mt-2 text-sm text-slate-500">{text}</p>
+  </div>
+);
+
+const SummaryMini: React.FC<{ label: string; value: string }> = ({
+  label,
+  value,
+}) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+      {label}
+    </p>
+    <p className="mt-2 text-lg font-semibold text-slate-950">{value}</p>
+  </div>
+);
+
+const InfoTile: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  value: string;
+  description: string;
+  onClick: () => void;
+}> = ({ icon: Icon, title, value, description, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+  >
+    <div className="flex items-center justify-between">
+      <div className="rounded-xl bg-slate-100 p-2.5 text-slate-700">
+        <Icon className="h-5 w-5" />
+      </div>
+      <ArrowRight className="h-4 w-4 text-slate-300" />
+    </div>
+    <p className="mt-4 text-sm font-medium text-slate-500">{title}</p>
+    <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{value}</p>
+    <p className="mt-1 text-xs text-slate-500">{description}</p>
+  </button>
+);

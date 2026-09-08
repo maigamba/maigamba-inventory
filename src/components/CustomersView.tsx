@@ -6,6 +6,7 @@ import { formatCurrency, formatDate, parseNumber } from '../utils/formatters';
 import { ConfirmationModal } from './ConfirmationModal';
 import {
   Users,
+  UserPlus,
   Plus,
   Search,
   Edit,
@@ -18,6 +19,10 @@ import {
   MapPin,
   Building2,
   Eye,
+  Wallet,
+  UserRoundCheck,
+  UserRoundX,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 type CustomerForm = {
@@ -48,7 +53,8 @@ function normalizeCustomer(raw: any): Customer {
     Phone: String(raw?.Phone ?? raw?.phone ?? '').trim(),
     Email: String(raw?.Email ?? raw?.email ?? '').trim(),
     Address: String(raw?.Address ?? raw?.address ?? '').trim(),
-    CustomerType: String(raw?.CustomerType ?? raw?.customerType ?? 'Retail').trim() || 'Retail',
+    CustomerType:
+      String(raw?.CustomerType ?? raw?.customerType ?? 'Retail').trim() || 'Retail',
     AccountBalance: Number(raw?.AccountBalance ?? raw?.accountBalance ?? 0),
     Status: String(raw?.Status ?? raw?.status ?? 'Active').trim() || 'Active',
     CreatedAt: raw?.CreatedAt ?? raw?.createdAt,
@@ -56,11 +62,39 @@ function normalizeCustomer(raw: any): Customer {
   } as Customer;
 }
 
+const statusTone: Record<string, string> = {
+  Active: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  Archived: 'border-slate-200 bg-slate-100 text-slate-600',
+};
+
+const typeTone: Record<string, string> = {
+  Retail: 'border-blue-200 bg-blue-50 text-blue-700',
+  Corporate: 'border-violet-200 bg-violet-50 text-violet-700',
+  Wholesale: 'border-amber-200 bg-amber-50 text-amber-700',
+};
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'CU';
+  return parts
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase() || '')
+    .join('');
+}
+
 export const CustomersView: React.FC = () => {
-  const { customers: rawCustomers, refreshCustomers, addToast, loading } = useInventory();
+  const {
+    customers: rawCustomers,
+    refreshCustomers,
+    addToast,
+    loading,
+  } = useInventory();
 
   const customers = useMemo(
-    () => (Array.isArray(rawCustomers) ? rawCustomers.map(normalizeCustomer).filter(c => c.CustomerID) : []),
+    () =>
+      Array.isArray(rawCustomers)
+        ? rawCustomers.map(normalizeCustomer).filter(c => c.CustomerID)
+        : [],
     [rawCustomers]
   );
 
@@ -116,6 +150,7 @@ export const CustomersView: React.FC = () => {
     }
 
     setIsSubmitting(true);
+
     try {
       const payload = {
         customerName: name,
@@ -159,6 +194,7 @@ export const CustomersView: React.FC = () => {
     if (!archivingCustomer?.CustomerID) return;
 
     setIsSubmitting(true);
+
     try {
       const response = await inventoryApi.archiveCustomer(archivingCustomer.CustomerID);
 
@@ -188,7 +224,8 @@ export const CustomersView: React.FC = () => {
         customer.Phone.toLowerCase().includes(q) ||
         customer.Email.toLowerCase().includes(q) ||
         customer.CustomerID.toLowerCase().includes(q) ||
-        customer.CustomerType.toLowerCase().includes(q);
+        customer.CustomerType.toLowerCase().includes(q) ||
+        customer.Address.toLowerCase().includes(q);
 
       const matchesStatus =
         statusFilter === 'ALL' || customer.Status === statusFilter;
@@ -213,229 +250,447 @@ export const CustomersView: React.FC = () => {
       return sum + (balance > 0 ? balance : 0);
     }, 0);
 
-    return { total: customers.length, active, archived, receivable };
+    const corporate = customers.filter(c => c.CustomerType === 'Corporate').length;
+    const wholesale = customers.filter(c => c.CustomerType === 'Wholesale').length;
+
+    return {
+      total: customers.length,
+      active,
+      archived,
+      receivable,
+      corporate,
+      wholesale,
+    };
   }, [customers]);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-serif font-bold text-[#1a1a1a] tracking-tight">
-              Customer Database
-            </h2>
-            <span className="text-[9px] font-mono uppercase tracking-widest text-black/40 border border-black/15 px-1.5 py-0.5">
-              {stats.total} RECORDS
-            </span>
+    <div className="min-h-full bg-slate-50/70">
+      <div className="mx-auto max-w-[1600px] p-4 sm:p-6 lg:p-8 space-y-6">
+        {/* Page header */}
+        <section className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                <Users className="h-4.5 w-4.5" />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-600">
+                Customer Management
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-950">
+              Customers
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Manage your retail, corporate, and wholesale customer records from one place.
+            </p>
           </div>
-          <p className="text-xs text-black/60 font-light mt-1">
-            Manage retail, corporate and wholesale customers connected directly to PostgreSQL.
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => refreshCustomers()}
-            disabled={loading.customers}
-            className="p-2.5 rounded-sm border border-black/15 bg-white hover:bg-[#f4f0ea] text-[#1a1a1a] shadow-xs transition-colors"
-            title="Refresh customers"
-          >
-            <RotateCw className={`w-4 h-4 ${loading.customers ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => refreshCustomers()}
+              disabled={loading.customers}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RotateCw className={`h-4 w-4 ${loading.customers ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
 
-          <button
-            type="button"
-            id="btn-add-customer"
-            onClick={openAdd}
-            className="px-4 py-2.5 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] text-[10px] uppercase tracking-wider font-semibold rounded-sm shadow-xs flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Add Customer
-          </button>
-        </div>
-      </div>
+            <button
+              type="button"
+              id="btn-add-customer"
+              onClick={openAdd}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-100"
+            >
+              <UserPlus className="h-4 w-4" />
+              Add Customer
+            </button>
+          </div>
+        </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="bg-white p-4 border border-black/10 rounded-sm">
-          <div className="text-[10px] uppercase tracking-widest text-black/50">Total Customers</div>
-          <div className="text-2xl font-serif font-bold mt-1">{stats.total}</div>
-        </div>
-        <div className="bg-white p-4 border border-black/10 rounded-sm">
-          <div className="text-[10px] uppercase tracking-widest text-black/50">Active</div>
-          <div className="text-2xl font-serif font-bold mt-1">{stats.active}</div>
-        </div>
-        <div className="bg-white p-4 border border-black/10 rounded-sm">
-          <div className="text-[10px] uppercase tracking-widest text-black/50">Archived</div>
-          <div className="text-2xl font-serif font-bold mt-1">{stats.archived}</div>
-        </div>
-        <div className="bg-white p-4 border border-black/10 rounded-sm">
-          <div className="text-[10px] uppercase tracking-widest text-black/50">Positive Balances</div>
-          <div className="text-xl font-serif font-bold mt-1">{formatCurrency(stats.receivable)}</div>
-        </div>
-      </div>
-
-      <div className="bg-white p-4 rounded-sm border border-black/10 shadow-xs grid grid-cols-1 md:grid-cols-[1fr_180px_200px] gap-3">
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-black/40" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search name, phone, email, ID..."
-            className="w-full pl-9 pr-3 py-2.5 text-xs bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black"
-          />
-        </div>
-
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value as 'ALL' | 'Active' | 'Archived')}
-          className="py-2.5 px-3 text-xs bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white"
-        >
-          <option value="ALL">All Statuses</option>
-          <option value="Active">Active</option>
-          <option value="Archived">Archived</option>
-        </select>
-
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          className="py-2.5 px-3 text-xs bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white"
-        >
-          <option value="ALL">All Customer Types</option>
-          {customerTypes.map(type => (
-            <option key={type} value={type}>{type}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="bg-white rounded-sm border border-black/10 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-[#fcfaf7] border-b border-black/10 text-black/60 font-semibold uppercase tracking-[0.15em] text-[10px]">
-              <tr>
-                <th className="py-3 px-4">Customer</th>
-                <th className="py-3 px-4">Contact</th>
-                <th className="py-3 px-4">Type</th>
-                <th className="py-3 px-4">Address</th>
-                <th className="py-3 px-4">Balance</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-black/5">
-              {filteredCustomers.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-14 text-center text-black/40">
-                    <Users className="w-8 h-8 mx-auto mb-2 text-black/20" />
-                    <p className="font-semibold text-black/60">No customers found</p>
-                    <p className="text-[11px] mt-1">Try changing the search or filters, or add a new customer.</p>
-                  </td>
-                </tr>
-              ) : (
-                filteredCustomers.map(customer => (
-                  <tr key={customer.CustomerID} className="hover:bg-[#fcfaf7]/70 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-[#1a1a1a]">{customer.CustomerName || '—'}</div>
-                      <div className="text-[10px] font-mono text-black/40 mt-0.5">{customer.CustomerID}</div>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                        <Phone className="w-3 h-3 text-black/30" />
-                        {customer.Phone || '—'}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-black/60 mt-1">
-                        <Mail className="w-3 h-3 text-black/30" />
-                        {customer.Email || '—'}
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded-sm font-semibold text-[9px] uppercase tracking-wider bg-[#f4f0ea] text-black/80 border border-black/10">
-                        {customer.CustomerType || 'Retail'}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-4 max-w-xs">
-                      <div className="flex items-start gap-1.5 text-black/60 truncate">
-                        <MapPin className="w-3 h-3 mt-0.5 shrink-0 text-black/30" />
-                        <span className="truncate">{customer.Address || '—'}</span>
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4 font-serif font-bold">
-                      {formatCurrency(parseNumber(customer.AccountBalance))}
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 rounded-sm text-[9px] uppercase tracking-wider font-bold border ${customer.Status === 'Active'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : 'bg-[#f4f0ea] text-black/60 border-black/10'
-                        }`}>
-                        {customer.Status || 'Active'}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setViewingCustomer(customer)}
-                          className="p-1.5 text-black/40 hover:text-black hover:bg-black/5 rounded-sm"
-                          title="View customer"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEdit(customer)}
-                          className="p-1.5 text-black/40 hover:text-black hover:bg-black/5 rounded-sm"
-                          title="Edit customer"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        {customer.Status !== 'Archived' && (
-                          <button
-                            type="button"
-                            onClick={() => setArchivingCustomer(customer)}
-                            className="p-1.5 text-black/40 hover:text-amber-800 hover:bg-black/5 rounded-sm"
-                            title="Archive customer"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white rounded-sm shadow-2xl border border-black/20 overflow-hidden">
-            <div className="p-5 border-b border-black/10 bg-[#fcfaf7] flex items-center justify-between">
+        {/* KPI cards */}
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-serif font-bold text-[#1a1a1a]">
-                  {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
-                </h3>
-                <p className="text-[10px] text-black/50 mt-0.5">
-                  {editingCustomer ? editingCustomer.CustomerID : 'A new Customer ID will be generated by the server.'}
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Total Customers
+                </p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+                  {stats.total}
                 </p>
               </div>
-              <button type="button" onClick={closeModal} className="text-black/40 hover:text-black p-1">
-                <X className="w-5 h-5" />
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <Users className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">All customer records</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Active Customers
+                </p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+                  {stats.active}
+                </p>
+              </div>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <UserRoundCheck className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">
+              {stats.total ? Math.round((stats.active / stats.total) * 100) : 0}% of records
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Customer Receivables
+                </p>
+                <p className="mt-2 text-xl font-bold tracking-tight text-slate-950">
+                  {formatCurrency(stats.receivable)}
+                </p>
+              </div>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                <Wallet className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">Positive account balances</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Business Customers
+                </p>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+                  {stats.corporate + stats.wholesale}
+                </p>
+              </div>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
+                <Building2 className="h-5 w-5" />
+              </span>
+            </div>
+            <p className="mt-3 text-xs text-slate-400">
+              {stats.corporate} corporate • {stats.wholesale} wholesale
+            </p>
+          </div>
+        </section>
+
+        {/* Main table */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 p-4 sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">Customer directory</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Search, filter and manage customer records.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="relative min-w-0 sm:w-72">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search customer, phone, email..."
+                    className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+
+                <label className="relative">
+                  <span className="sr-only">Filter by status</span>
+                  <SlidersHorizontal className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <select
+                    value={statusFilter}
+                    onChange={e =>
+                      setStatusFilter(e.target.value as 'ALL' | 'Active' | 'Archived')
+                    }
+                    className="h-10 min-w-40 appearance-none rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-8 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  >
+                    <option value="ALL">All Statuses</option>
+                    <option value="Active">Active</option>
+                    <option value="Archived">Archived</option>
+                  </select>
+                </label>
+
+                <select
+                  value={typeFilter}
+                  onChange={e => setTypeFilter(e.target.value)}
+                  className="h-10 min-w-40 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                >
+                  <option value="ALL">All Types</option>
+                  {customerTypes.map(type => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">
+                {filteredCustomers.length} shown
+              </span>
+              {search && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 font-medium text-blue-700">
+                  Search: “{search}”
+                </span>
+              )}
+              {statusFilter !== 'ALL' && (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
+                  {statusFilter}
+                </span>
+              )}
+              {typeFilter !== 'ALL' && (
+                <span className="rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-700">
+                  {typeFilter}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left">
+              <thead className="border-b border-slate-200 bg-slate-50/80">
+                <tr>
+                  <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Customer
+                  </th>
+                  <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Contact
+                  </th>
+                  <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Type
+                  </th>
+                  <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Address
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Balance
+                  </th>
+                  <th className="px-5 py-3.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Status
+                  </th>
+                  <th className="px-5 py-3.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100">
+                {loading.customers && customers.length === 0 ? (
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <tr key={`skeleton-${index}`}>
+                      {Array.from({ length: 7 }).map((__, cellIndex) => (
+                        <td key={cellIndex} className="px-5 py-4">
+                          <div className="h-4 animate-pulse rounded bg-slate-100" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : filteredCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-16 text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                        <Users className="h-6 w-6" />
+                      </div>
+                      <h3 className="mt-4 text-sm font-semibold text-slate-800">
+                        No customers found
+                      </h3>
+                      <p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-500">
+                        Try a different search or filter, or create a new customer record.
+                      </p>
+                      {!search && statusFilter === 'ALL' && typeFilter === 'ALL' && (
+                        <button
+                          type="button"
+                          onClick={openAdd}
+                          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add your first customer
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCustomers.map(customer => (
+                    <tr
+                      key={customer.CustomerID}
+                      className="group transition-colors hover:bg-slate-50/80"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-xs font-bold text-blue-700">
+                            {initials(customer.CustomerName)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900">
+                              {customer.CustomerName || 'Unnamed customer'}
+                            </div>
+                            <div className="mt-0.5 font-mono text-[10px] text-slate-400">
+                              {customer.CustomerID}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex items-center gap-2 text-slate-700">
+                            <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                            <span>{customer.Phone || 'No phone'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-slate-500">
+                            <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                            <span className="max-w-[210px] truncate">
+                              {customer.Email || 'No email'}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold ${typeTone[customer.CustomerType] ||
+                            'border-slate-200 bg-slate-100 text-slate-600'
+                            }`}
+                        >
+                          {customer.CustomerType || 'Retail'}
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="flex max-w-[260px] items-start gap-2 text-xs text-slate-500">
+                          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          <span className="truncate">{customer.Address || 'No address'}</span>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4 text-right">
+                        <div className="text-sm font-bold tabular-nums text-slate-900">
+                          {formatCurrency(parseNumber(customer.AccountBalance))}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-slate-400">
+                          account balance
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusTone[customer.Status] ||
+                            'border-slate-200 bg-slate-100 text-slate-600'
+                            }`}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {customer.Status || 'Active'}
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="flex items-center justify-end gap-1 opacity-80 transition group-hover:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() => setViewingCustomer(customer)}
+                            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+                            title="View customer"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(customer)}
+                            className="rounded-lg p-2 text-slate-400 transition hover:bg-blue-50 hover:text-blue-700"
+                            title="Edit customer"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          {customer.Status !== 'Archived' && (
+                            <button
+                              type="button"
+                              onClick={() => setArchivingCustomer(customer)}
+                              className="rounded-lg p-2 text-slate-400 transition hover:bg-amber-50 hover:text-amber-700"
+                              title="Archive customer"
+                            >
+                              <Archive className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+            <div className="flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Showing <strong className="text-slate-700">{filteredCustomers.length}</strong> of{' '}
+                <strong className="text-slate-700">{customers.length}</strong> customers
+              </span>
+              <span className="font-mono text-[10px] text-slate-400">
+                Customer records • PostgreSQL
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* Add/Edit modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur sm:px-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                  <Users className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-slate-950">
+                    {editingCustomer ? 'Edit Customer' : 'Add Customer'}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {editingCustomer
+                      ? editingCustomer.CustomerID
+                      : 'A new customer ID will be generated by the server.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-800"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleSave} className="space-y-5 p-5 sm:p-6">
               <div>
-                <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
-                  Customer Full Name *
+                <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                  Customer full name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -444,32 +699,32 @@ export const CustomersView: React.FC = () => {
                   value={formData.name}
                   onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="e.g. Alhaji Mustapha / Access Bank IT"
-                  className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black"
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
-                    Phone
-                  </label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">Phone</label>
                   <input
                     type="tel"
                     value={formData.phone}
                     onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
                     placeholder="+234 802 345 6789"
-                    className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black font-mono"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-mono text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
-                    Customer Type
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                    Customer type
                   </label>
                   <select
                     value={formData.customerType}
-                    onChange={e => setFormData(prev => ({ ...prev, customerType: e.target.value }))}
-                    className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black"
+                    onChange={e =>
+                      setFormData(prev => ({ ...prev, customerType: e.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                   >
                     <option value="Retail">Retail Consumer</option>
                     <option value="Corporate">Corporate / B2B</option>
@@ -479,54 +734,55 @@ export const CustomersView: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
-                  Email
-                </label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Email</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
                   placeholder="client@company.com"
-                  className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black"
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
-                  Address
-                </label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-700">Address</label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={formData.address}
                   onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))}
                   placeholder="Office 4, Commercial Plaza, Kano"
-                  className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black resize-none"
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
-                    Account Balance (₦)
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
+                    Account balance (₦)
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
                     value={formData.accountBalance}
-                    onChange={e => setFormData(prev => ({ ...prev, accountBalance: Number(e.target.value) || 0 }))}
-                    className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black font-mono"
+                    onChange={e =>
+                      setFormData(prev => ({
+                        ...prev,
+                        accountBalance: Number(e.target.value) || 0,
+                      }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-mono text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.15em] mb-1">
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
                     Status
                   </label>
                   <select
                     value={formData.status}
                     onChange={e => setFormData(prev => ({ ...prev, status: e.target.value }))}
-                    className="w-full p-2.5 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                   >
                     <option value="Active">Active</option>
                     <option value="Archived">Archived</option>
@@ -534,21 +790,31 @@ export const CustomersView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={closeModal}
                   disabled={isSubmitting}
-                  className="px-4 py-2 text-[10px] uppercase tracking-wider font-semibold bg-[#f4f0ea] hover:bg-black/10 rounded-sm"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] rounded-sm text-[10px] uppercase tracking-wider font-semibold"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isSubmitting ? 'Saving...' : editingCustomer ? 'Update Customer' : 'Add Customer'}
+                  {isSubmitting ? (
+                    <>
+                      <RotateCw className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4" />
+                      {editingCustomer ? 'Save Changes' : 'Add Customer'}
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -556,37 +822,130 @@ export const CustomersView: React.FC = () => {
         </div>
       )}
 
+      {/* View customer modal */}
       {viewingCustomer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-white rounded-sm shadow-2xl border border-black/20">
-            <div className="p-5 border-b border-black/10 flex items-center justify-between bg-[#fcfaf7]">
-              <div>
-                <div className="text-[10px] uppercase tracking-widest text-black/40">Customer Profile</div>
-                <h3 className="text-lg font-serif font-bold">{viewingCustomer.CustomerName}</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-5 py-4 sm:px-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-blue-700">
+                  {initials(viewingCustomer.CustomerName)}
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Customer Profile
+                  </p>
+                  <h3 className="text-lg font-bold text-slate-950">
+                    {viewingCustomer.CustomerName}
+                  </h3>
+                </div>
               </div>
-              <button type="button" onClick={() => setViewingCustomer(null)} className="p-1 text-black/40 hover:text-black">
-                <X className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={() => setViewingCustomer(null)}
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-200 hover:text-slate-800"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-3 text-xs">
-              <div className="flex items-center gap-2"><UserCheck className="w-4 h-4 text-black/40" /><span className="font-mono">{viewingCustomer.CustomerID}</span></div>
-              <div className="flex items-center gap-2"><Phone className="w-4 h-4 text-black/40" /><span>{viewingCustomer.Phone || 'No phone number'}</span></div>
-              <div className="flex items-center gap-2"><Mail className="w-4 h-4 text-black/40" /><span>{viewingCustomer.Email || 'No email address'}</span></div>
-              <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-black/40" /><span>{viewingCustomer.Address || 'No address'}</span></div>
-              <div className="flex items-center gap-2"><Building2 className="w-4 h-4 text-black/40" /><span>{viewingCustomer.CustomerType || 'Retail'}</span></div>
-              <div className="pt-3 border-t border-black/10 flex justify-between">
-                <span className="text-black/50">Account balance</span>
-                <strong>{formatCurrency(parseNumber(viewingCustomer.AccountBalance))}</strong>
+            <div className="space-y-4 p-5 sm:p-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Customer ID
+                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-800">
+                    <UserCheck className="h-4 w-4 text-slate-400" />
+                    <span className="font-mono">{viewingCustomer.CustomerID}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Customer type
+                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-800">
+                    <Building2 className="h-4 w-4 text-slate-400" />
+                    <span>{viewingCustomer.CustomerType || 'Retail'}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Phone
+                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-800">
+                    <Phone className="h-4 w-4 text-slate-400" />
+                    <span>{viewingCustomer.Phone || 'No phone number'}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Email
+                  </p>
+                  <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-800">
+                    <Mail className="h-4 w-4 text-slate-400" />
+                    <span className="truncate">{viewingCustomer.Email || 'No email address'}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-black/50">Status</span>
-                <strong>{viewingCustomer.Status || 'Active'}</strong>
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="flex items-start gap-3">
+                  <MapPin className="mt-0.5 h-4 w-4 text-slate-400" />
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Address
+                    </p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      {viewingCustomer.Address || 'No address recorded'}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="text-[10px] text-black/40 pt-2">
-                Created: {viewingCustomer.CreatedAt ? formatDate(viewingCustomer.CreatedAt) : '—'}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Account balance
+                  </p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">
+                    {formatCurrency(parseNumber(viewingCustomer.AccountBalance))}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Status
+                  </p>
+                  <div className="mt-2">
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${statusTone[viewingCustomer.Status] ||
+                        'border-slate-200 bg-white text-slate-600'
+                        }`}
+                    >
+                      {viewingCustomer.Status === 'Archived' ? (
+                        <UserRoundX className="h-3 w-3" />
+                      ) : (
+                        <UserRoundCheck className="h-3 w-3" />
+                      )}
+                      {viewingCustomer.Status || 'Active'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-400">
+                Created:{' '}
+                <span className="text-slate-600">
+                  {viewingCustomer.CreatedAt ? formatDate(viewingCustomer.CreatedAt) : '—'}
+                </span>
                 {' • '}
-                Updated: {viewingCustomer.UpdatedAt ? formatDate(viewingCustomer.UpdatedAt) : '—'}
+                Updated:{' '}
+                <span className="text-slate-600">
+                  {viewingCustomer.UpdatedAt ? formatDate(viewingCustomer.UpdatedAt) : '—'}
+                </span>
               </div>
             </div>
           </div>
