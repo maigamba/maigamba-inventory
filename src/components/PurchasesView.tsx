@@ -415,6 +415,10 @@ export const PurchasesView: React.FC = () => {
     setSearchHistory,
   ] = useState('');
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const purchasesPerPage = 10;
+
   // ==========================================================================
   // ADD LINE ITEM
   // ==========================================================================
@@ -775,6 +779,89 @@ export const PurchasesView: React.FC = () => {
         );
       }
     );
+
+  // ==========================================================================
+  // PAGINATION
+  // ==========================================================================
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchHistory]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredPurchases.length / purchasesPerPage)
+  );
+
+  const safeCurrentPage = Math.min(
+    currentPage,
+    totalPages
+  );
+
+  const paginatedPurchases = useMemo(() => {
+    const startIndex =
+      (safeCurrentPage - 1) * purchasesPerPage;
+
+    return filteredPurchases.slice(
+      startIndex,
+      startIndex + purchasesPerPage
+    );
+  }, [
+    filteredPurchases,
+    safeCurrentPage,
+  ]);
+
+  const pageStart =
+    filteredPurchases.length === 0
+      ? 0
+      : (safeCurrentPage - 1) *
+      purchasesPerPage +
+      1;
+
+  const pageEnd = Math.min(
+    safeCurrentPage * purchasesPerPage,
+    filteredPurchases.length
+  );
+
+  const visiblePages = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from(
+        { length: totalPages },
+        (_, index) => index + 1
+      );
+    }
+
+    const pages: number[] = [1];
+
+    const start = Math.max(
+      2,
+      safeCurrentPage - 1
+    );
+
+    const end = Math.min(
+      totalPages - 1,
+      safeCurrentPage + 1
+    );
+
+    if (start > 2) {
+      pages.push(-1);
+    }
+
+    for (let page = start; page <= end; page += 1) {
+      pages.push(page);
+    }
+
+    if (end < totalPages - 1) {
+      pages.push(-2);
+    }
+
+    pages.push(totalPages);
+
+    return pages;
+  }, [
+    safeCurrentPage,
+    totalPages,
+  ]);
 
   // ==========================================================================
   // HISTORY SUMMARY
@@ -1790,7 +1877,7 @@ export const PurchasesView: React.FC = () => {
                   ) : (
 
                     /* DATA */
-                    filteredPurchases.map(
+                    paginatedPurchases.map(
                       (purchase) => {
                         const record =
                           purchase as AnyRecord;
@@ -1988,6 +2075,83 @@ export const PurchasesView: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* PAGINATION */}
+            {filteredPurchases.length > 0 && (
+              <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  Showing{" "}
+                  <span className="font-semibold text-slate-800">
+                    {pageStart}
+                  </span>
+                  {"–"}
+                  <span className="font-semibold text-slate-800">
+                    {pageEnd}
+                  </span>
+                  {" of "}
+                  <span className="font-semibold text-slate-800">
+                    {filteredPurchases.length}
+                  </span>
+                  {" purchase orders"}
+                </p>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={safeCurrentPage === 1}
+                    onClick={() =>
+                      setCurrentPage((page) =>
+                        Math.max(1, page - 1)
+                      )
+                    }
+                    className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    Previous
+                  </button>
+
+                  {visiblePages.map((page, index) =>
+                    page < 0 ? (
+                      <span
+                        key={`ellipsis-${page}-${index}`}
+                        className="flex h-9 w-8 items-center justify-center text-xs text-slate-400"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() =>
+                          setCurrentPage(page)
+                        }
+                        className={`h-9 min-w-9 rounded-lg px-2 text-xs font-bold transition ${safeCurrentPage === page
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={safeCurrentPage === totalPages}
+                    onClick={() =>
+                      setCurrentPage((page) =>
+                        Math.min(
+                          totalPages,
+                          page + 1
+                        )
+                      )
+                    }
+                    className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

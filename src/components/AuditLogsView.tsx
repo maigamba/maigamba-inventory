@@ -19,6 +19,10 @@ export const AuditLogsView: React.FC = () => {
   const [moduleFilter, setModuleFilter] = useState("ALL");
   const [actionFilter, setActionFilter] = useState("ALL");
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const logsPerPage = 10;
+
   /*
   |--------------------------------------------------------------------------
   | Normalize PostgreSQL / Prisma audit log fields
@@ -224,6 +228,63 @@ export const AuditLogsView: React.FC = () => {
     moduleFilter,
     actionFilter,
   ]);
+
+  // Reset to the first page whenever the active filters change.
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [search, moduleFilter, actionFilter]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLogs.length / logsPerPage)
+  );
+
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedLogs = useMemo(() => {
+    const start = (safeCurrentPage - 1) * logsPerPage;
+    return filteredLogs.slice(start, start + logsPerPage);
+  }, [filteredLogs, safeCurrentPage]);
+
+  const pageStart =
+    filteredLogs.length === 0
+      ? 0
+      : (safeCurrentPage - 1) * logsPerPage + 1;
+
+  const pageEnd = Math.min(
+    safeCurrentPage * logsPerPage,
+    filteredLogs.length
+  );
+
+  const visiblePages = useMemo(() => {
+    const pages: (number | "ellipsis")[] = [];
+
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i += 1) pages.push(i);
+      return pages;
+    }
+
+    pages.push(1);
+
+    if (safeCurrentPage > 4) {
+      pages.push("ellipsis");
+    }
+
+    const start = Math.max(2, safeCurrentPage - 1);
+    const end = Math.min(totalPages - 1, safeCurrentPage + 1);
+
+    for (let i = start; i <= end; i += 1) {
+      pages.push(i);
+    }
+
+    if (safeCurrentPage < totalPages - 3) {
+      pages.push("ellipsis");
+    }
+
+    pages.push(totalPages);
+
+    return pages;
+  }, [safeCurrentPage, totalPages]);
 
   /*
   |--------------------------------------------------------------------------
@@ -459,7 +520,7 @@ export const AuditLogsView: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredLogs.map((log) => {
+                  paginatedLogs.map((log) => {
                     const status = getStatus(log);
                     const isSuccess = status.toLowerCase() === "success";
 
@@ -535,6 +596,68 @@ export const AuditLogsView: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {filteredLogs.length > 0 && (
+            <div className="flex flex-col gap-3 border-t border-black/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-black/45">
+                Showing{" "}
+                <strong className="text-black/70">{pageStart}</strong>
+                {" – "}
+                <strong className="text-black/70">{pageEnd}</strong>
+                {" of "}
+                <strong className="text-black/70">{filteredLogs.length}</strong>
+                {" audit logs"}
+              </p>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={safeCurrentPage === 1}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-black/10 bg-white px-3 text-xs font-semibold text-black/60 transition hover:bg-[#f7f7f5] hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  Previous
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {visiblePages.map((page, index) =>
+                    page === "ellipsis" ? (
+                      <span
+                        key={`ellipsis-${index}`}
+                        className="flex h-9 w-8 items-center justify-center text-xs text-black/35"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setCurrentPage(page)}
+                        className={`h-9 min-w-9 rounded-lg px-2 text-xs font-bold transition ${safeCurrentPage === page
+                          ? "bg-[#171717] text-white shadow-sm"
+                          : "border border-black/10 bg-white text-black/55 hover:bg-[#f7f7f5] hover:text-black"
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.min(totalPages, page + 1))
+                  }
+                  disabled={safeCurrentPage === totalPages}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-black/10 bg-white px-3 text-xs font-semibold text-black/60 transition hover:bg-[#f7f7f5] hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

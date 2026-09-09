@@ -59,6 +59,11 @@ export const POSView: React.FC = () => {
   // Mode: POS register vs Sales History
   const [viewMode, setViewMode] = useState<'POS' | 'HISTORY'>('POS');
 
+  // Sales History search + pagination
+  const [searchSalesHistory, setSearchSalesHistory] = useState('');
+  const [salesHistoryPage, setSalesHistoryPage] = useState(1);
+  const salesPerPage = 10;
+
   // Product Catalog Filter in POS
   const [searchProduct, setSearchProduct] = useState('');
   const [selectedCat, setSelectedCat] = useState<string>('ALL');
@@ -402,6 +407,92 @@ export const POSView: React.FC = () => {
     } finally {
       setIsSubmittingSale(false);
     }
+  };
+
+  // Sales History filtering and pagination
+  const filteredSalesHistory = useMemo(() => {
+    const q = searchSalesHistory.trim().toLowerCase();
+
+    if (!q) return sales;
+
+    return sales.filter((sale) => {
+      const customerName = getCustomerName(sale.CustomerID) || '';
+      const haystack = [
+        sale.SaleID,
+        sale.InvoiceNumber,
+        sale.CustomerID,
+        customerName,
+        sale.PaymentMethod,
+        sale.PaymentStatus,
+        sale.SaleStatus,
+        sale.CreatedBy,
+        sale.SaleDate,
+        sale.CreatedAt,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(q);
+    });
+  }, [sales, searchSalesHistory, getCustomerName]);
+
+  useEffect(() => {
+    setSalesHistoryPage(1);
+  }, [searchSalesHistory]);
+
+  const totalSalesPages = Math.max(
+    1,
+    Math.ceil(filteredSalesHistory.length / salesPerPage)
+  );
+
+  const safeSalesHistoryPage = Math.min(
+    salesHistoryPage,
+    totalSalesPages
+  );
+
+  const paginatedSalesHistory = useMemo(() => {
+    const start = (safeSalesHistoryPage - 1) * salesPerPage;
+    return filteredSalesHistory.slice(start, start + salesPerPage);
+  }, [filteredSalesHistory, safeSalesHistoryPage]);
+
+  const salesPageStart =
+    filteredSalesHistory.length === 0
+      ? 0
+      : (safeSalesHistoryPage - 1) * salesPerPage + 1;
+
+  const salesPageEnd = Math.min(
+    safeSalesHistoryPage * salesPerPage,
+    filteredSalesHistory.length
+  );
+
+  const getSalesPageNumbers = () => {
+    const pages: (number | 'ellipsis')[] = [];
+
+    if (totalSalesPages <= 7) {
+      for (let i = 1; i <= totalSalesPages; i++) pages.push(i);
+      return pages;
+    }
+
+    pages.push(1);
+
+    if (safeSalesHistoryPage > 4) {
+      pages.push('ellipsis');
+    }
+
+    const start = Math.max(2, safeSalesHistoryPage - 1);
+    const end = Math.min(totalSalesPages - 1, safeSalesHistoryPage + 1);
+
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+
+    if (safeSalesHistoryPage < totalSalesPages - 3) {
+      pages.push('ellipsis');
+    }
+
+    pages.push(totalSalesPages);
+    return pages;
   };
 
   return (
@@ -973,21 +1064,69 @@ export const POSView: React.FC = () => {
           </div>
         ) : (
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-slate-950">Sales History</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  Completed sales, invoices, payment status, and receivables.
-                </p>
+            <div className="border-b border-slate-200 bg-white px-5 py-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                      <History className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-semibold text-slate-950">Sales History</h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Completed sales, invoices, payment status, and receivables.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => refreshSales()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-300"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => refreshSales()}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Refresh
-              </button>
+
+              <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchSalesHistory}
+                    onChange={(e) => setSearchSalesHistory(e.target.value)}
+                    placeholder="Search sales by invoice, sale ID, customer, payment method, or status..."
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                  />
+                  {searchSalesHistory && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchSalesHistory('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+                      aria-label="Clear sales history search"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-600">
+                    {filteredSalesHistory.length} result{filteredSalesHistory.length === 1 ? '' : 's'}
+                  </span>
+                  {searchSalesHistory && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchSalesHistory('')}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1016,22 +1155,24 @@ export const POSView: React.FC = () => {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {sales.length === 0 ? (
+                  {filteredSalesHistory.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-6 py-16 text-center">
                         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
                           <Receipt className="h-6 w-6" />
                         </div>
                         <h3 className="mt-4 text-sm font-semibold text-slate-800">
-                          No completed sales yet
+                          {searchSalesHistory ? 'No sales match your search' : 'No completed sales yet'}
                         </h3>
                         <p className="mt-1 text-xs text-slate-500">
-                          Complete a sale from the POS terminal to create an invoice.
+                          {searchSalesHistory
+                            ? 'Try a different invoice number, customer name, payment method, or status.'
+                            : 'Complete a sale from the POS terminal to create an invoice.'}
                         </p>
                       </td>
                     </tr>
                   ) : (
-                    sales.map((sale) => (
+                    paginatedSalesHistory.map((sale) => (
                       <tr key={sale.SaleID} className="transition-colors hover:bg-slate-50/80">
                         <td className="px-5 py-4">
                           <div className="font-mono text-sm font-semibold text-slate-900">
@@ -1088,6 +1229,68 @@ export const POSView: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {filteredSalesHistory.length > 0 && (
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  Showing <span className="font-semibold text-slate-700">{salesPageStart}</span>
+                  {' '}–{' '}
+                  <span className="font-semibold text-slate-700">{salesPageEnd}</span>
+                  {' '}of{' '}
+                  <span className="font-semibold text-slate-700">{filteredSalesHistory.length}</span>
+                  {' '}sales
+                </p>
+
+                <div className="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    disabled={safeSalesHistoryPage === 1}
+                    onClick={() =>
+                      setSalesHistoryPage((page) => Math.max(1, page - 1))
+                    }
+                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+
+                  {getSalesPageNumbers().map((page, index) =>
+                    page === 'ellipsis' ? (
+                      <span
+                        key={`sales-ellipsis-${index}`}
+                        className="px-1.5 text-xs font-semibold text-slate-400"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setSalesHistoryPage(page)}
+                        className={`h-9 min-w-9 rounded-lg px-2.5 text-xs font-semibold transition ${safeSalesHistoryPage === page
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={safeSalesHistoryPage === totalSalesPages}
+                    onClick={() =>
+                      setSalesHistoryPage((page) =>
+                        Math.min(totalSalesPages, page + 1)
+                      )
+                    }
+                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         )}
 
