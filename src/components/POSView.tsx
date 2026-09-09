@@ -351,12 +351,12 @@ export const POSView: React.FC = () => {
       const finalPaid = amountPaid === '' ? grandTotal : Number(amountPaid) || 0;
 
       const salePayload = {
-        CustomerID: selectedCustomerId || 'CUST-WALKIN',
-        AmountPaid: finalPaid,
-        Discount: Number(saleDiscount) || 0,
-        Tax: Number(taxAmount) || 0,
-        PaymentMethod: paymentMethod,
-        CreatedBy: currentUser?.FullName || 'Admin Staff',
+        customerId: selectedCustomerId || 'CUST-WALKIN',
+        amountPaid: finalPaid,
+        discount: Number(saleDiscount) || 0,
+        tax: Number(taxAmount) || 0,
+        paymentMethod: paymentMethod,
+        createdBy: currentUser?.UserID || currentUser?.FullName || 'Admin Staff',
         items: saleItems,
       };
 
@@ -431,8 +431,8 @@ export const POSView: React.FC = () => {
               type="button"
               onClick={() => setViewMode('POS')}
               className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition ${viewMode === 'POS'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                 }`}
             >
               <ShoppingCart className="h-4 w-4" />
@@ -442,8 +442,8 @@ export const POSView: React.FC = () => {
               type="button"
               onClick={() => setViewMode('HISTORY')}
               className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition ${viewMode === 'HISTORY'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
                 }`}
             >
               <History className="h-4 w-4" />
@@ -543,8 +543,8 @@ export const POSView: React.FC = () => {
                   {lastScanAlert && (
                     <div
                       className={`mt-3 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs ${lastScanAlert.success
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                          : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                        : 'border-rose-500/30 bg-rose-500/10 text-rose-200'
                         }`}
                     >
                       <div className="flex min-w-0 items-center gap-2">
@@ -625,10 +625,10 @@ export const POSView: React.FC = () => {
                             disabled={isOut}
                             onClick={() => addToCart(p)}
                             className={`group overflow-hidden rounded-2xl border text-left shadow-sm transition ${isOut
-                                ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60'
-                                : inCart
-                                  ? 'border-blue-300 bg-blue-50/30 ring-2 ring-blue-50'
-                                  : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md'
+                              ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60'
+                              : inCart
+                                ? 'border-blue-300 bg-blue-50/30 ring-2 ring-blue-50'
+                                : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md'
                               }`}
                           >
                             <div className="relative h-36 overflow-hidden bg-slate-100">
@@ -643,10 +643,10 @@ export const POSView: React.FC = () => {
                               </span>
                               <span
                                 className={`absolute right-3 top-3 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${isOut
-                                    ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                    : stock <= 3
-                                      ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                      : 'border-white/60 bg-white/90 text-slate-700'
+                                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                  : stock <= 3
+                                    ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                    : 'border-white/60 bg-white/90 text-slate-700'
                                   }`}
                               >
                                 {isOut ? 'Out of stock' : `${stock} available`}
@@ -866,8 +866,8 @@ export const POSView: React.FC = () => {
                           type="button"
                           onClick={() => setPaymentMethod(method)}
                           className={`rounded-xl border px-2 py-2 text-[10px] font-semibold transition ${paymentMethod === method
-                              ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                             }`}
                         >
                           {method}
@@ -1060,10 +1060,10 @@ export const POSView: React.FC = () => {
                         <td className="px-5 py-4">
                           <span
                             className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold ${sale.PaymentStatus === 'Paid'
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                : sale.PaymentStatus === 'Partial'
-                                  ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                  : 'border-rose-200 bg-rose-50 text-rose-700'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : sale.PaymentStatus === 'Partial'
+                                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                : 'border-rose-200 bg-rose-50 text-rose-700'
                               }`}
                           >
                             {sale.PaymentStatus || 'Paid'}
