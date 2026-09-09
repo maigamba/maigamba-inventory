@@ -2,6 +2,7 @@ const API_BASE_URL =
   import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 const TOKEN_KEY = "maigamba_inventory_token";
+const REMEMBER_KEY = "maigamba_inventory_remembered";
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -9,16 +10,62 @@ export interface ApiResponse<T = any> {
   data?: T;
 }
 
+/**
+ * Authentication storage
+ *
+ * Remember Me OFF:
+ *   - token is stored in sessionStorage
+ *   - browser session ends when the browser is closed
+ *
+ * Remember Me ON:
+ *   - token is stored in localStorage
+ *   - token survives browser restarts
+ *
+ * Older versions of the app always stored the token in localStorage.
+ * We intentionally ignore/remove that old token unless the explicit
+ * Remember Me flag exists.
+ */
 export function getAuthToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  const sessionToken = sessionStorage.getItem(TOKEN_KEY);
+
+  if (sessionToken) {
+    return sessionToken;
+  }
+
+  const remembered = localStorage.getItem(REMEMBER_KEY) === "true";
+
+  if (remembered) {
+    return localStorage.getItem(TOKEN_KEY);
+  }
+
+  // Remove legacy persistent tokens that were created before
+  // Remember Me was implemented correctly.
+  localStorage.removeItem(TOKEN_KEY);
+
+  return null;
 }
 
-export function setAuthToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+export function setAuthToken(
+  token: string,
+  remember: boolean = false
+): void {
+  // Always clear both stores before writing the new session.
+  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REMEMBER_KEY);
+
+  if (remember) {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(REMEMBER_KEY, "true");
+  } else {
+    sessionStorage.setItem(TOKEN_KEY, token);
+  }
 }
 
 export function clearAuthToken(): void {
+  sessionStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REMEMBER_KEY);
 }
 
 async function request<T = any>(
@@ -130,7 +177,8 @@ async function request<T = any>(
 
 async function login(
   email: string,
-  password: string
+  password: string,
+  remember: boolean = false
 ) {
   const result = await request<{
     user: any;
@@ -146,7 +194,7 @@ async function login(
   });
 
   if (result.success && result.data?.token) {
-    setAuthToken(result.data.token);
+    setAuthToken(result.data.token, remember);
   }
 
   return result;

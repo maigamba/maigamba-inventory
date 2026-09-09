@@ -184,13 +184,18 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   // Authentication persistence
-  // Remember Me ON  -> localStorage (persistent across browser restarts)
-  // Remember Me OFF -> sessionStorage (current browser session only)
+  // Remember Me ON  -> localStorage + explicit marker (persistent)
+  // Remember Me OFF -> sessionStorage only (current browser session)
   useEffect(() => {
     try {
-      const savedUser =
-        sessionStorage.getItem('maigamba_user_session') ??
-        localStorage.getItem('maigamba_user');
+      const sessionUser = sessionStorage.getItem('maigamba_user_session');
+      const remembered = localStorage.getItem('maigamba_remember_me') === 'true';
+      const savedUser = sessionUser ?? (remembered ? localStorage.getItem('maigamba_user') : null);
+
+      // Clear legacy remembered sessions that were created before this flag existed.
+      if (!remembered) {
+        localStorage.removeItem('maigamba_user');
+      }
 
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
@@ -202,6 +207,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       try {
         sessionStorage.removeItem('maigamba_user_session');
         localStorage.removeItem('maigamba_user');
+        localStorage.removeItem('maigamba_remember_me');
       } catch {
         // Ignore storage cleanup errors.
       }
@@ -217,10 +223,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       try {
         // Remove any previous remembered/current session first.
         localStorage.removeItem('maigamba_user');
+        localStorage.removeItem('maigamba_remember_me');
         sessionStorage.removeItem('maigamba_user_session');
 
         if (remember) {
           localStorage.setItem('maigamba_user', JSON.stringify(user));
+          localStorage.setItem('maigamba_remember_me', 'true');
         } else {
           sessionStorage.setItem(
             'maigamba_user_session',
@@ -245,6 +253,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     try {
       localStorage.removeItem('maigamba_user');
+      localStorage.removeItem('maigamba_remember_me');
       sessionStorage.removeItem('maigamba_user_session');
     } catch {
       // Ignore storage cleanup errors.

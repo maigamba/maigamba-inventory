@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
 import { formatDate, parseNumber } from '../utils/formatters';
 import {
@@ -47,6 +47,10 @@ export const StockMovementsView: React.FC = () => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [productFilter, setProductFilter] = useState('ALL');
+
+  // Pagination for the movement ledger
+  const movementsPerPage = 10;
+  const [currentPage, setCurrentPage] = useState(1);
 
   const movements = useMemo(
     () => (stockMovements || []) as unknown as MovementView[],
@@ -99,6 +103,37 @@ export const StockMovementsView: React.FC = () => {
     productFilter,
     getProductName,
   ]);
+
+  // Reset pagination whenever the active filters change.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, typeFilter, productFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMovements.length / movementsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * movementsPerPage;
+  const paginatedMovements = filteredMovements.slice(
+    pageStartIndex,
+    pageStartIndex + movementsPerPage
+  );
+  const pageStart = filteredMovements.length === 0 ? 0 : pageStartIndex + 1;
+  const pageEnd = Math.min(pageStartIndex + movementsPerPage, filteredMovements.length);
+
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    if (safeCurrentPage <= 4) {
+      return [1, 2, 3, 4, 5, 'ellipsis-end', totalPages] as const;
+    }
+
+    if (safeCurrentPage >= totalPages - 3) {
+      return [1, 'ellipsis-start', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as const;
+    }
+
+    return [1, 'ellipsis-start', safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1, 'ellipsis-end', totalPages] as const;
+  }, [totalPages, safeCurrentPage]);
 
   const movementTypes = useMemo(() => {
     const uniqueTypes = new Set<string>();
@@ -443,7 +478,7 @@ export const StockMovementsView: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredMovements.map((movement, index) => {
+                  paginatedMovements.map((movement, index) => {
                     const quantity = parseNumber(movement.Quantity);
                     const movementType = String(movement.MovementType ?? '').trim();
                     const normalizedMovementType = movementType.toLowerCase();
@@ -579,8 +614,67 @@ export const StockMovementsView: React.FC = () => {
             </table>
           </div>
 
-          <div className="border-t border-slate-200 bg-slate-50/70 px-5 py-3 text-[10px] text-slate-400">
-            Inventory movement records are read-only from this page.
+          <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-slate-500">
+              Showing{' '}
+              <span className="font-semibold text-slate-800">
+                {pageStart.toLocaleString()}–{pageEnd.toLocaleString()}
+              </span>{' '}
+              of{' '}
+              <span className="font-semibold text-slate-800">
+                {filteredMovements.length.toLocaleString()}
+              </span>{' '}
+              movement records
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={safeCurrentPage === 1}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {pageNumbers.map((page) =>
+                    typeof page === 'string' ? (
+                      <span
+                        key={page}
+                        className="px-2 text-xs font-semibold text-slate-400"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => setCurrentPage(page)}
+                        className={`h-9 min-w-9 rounded-lg border px-2.5 text-xs font-semibold transition ${page === safeCurrentPage
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                          }`}
+                      >
+                        {page}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((page) => Math.min(totalPages, page + 1))
+                  }
+                  disabled={safeCurrentPage === totalPages}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         </section>
       </div>
