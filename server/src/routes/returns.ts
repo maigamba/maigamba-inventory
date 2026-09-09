@@ -114,7 +114,6 @@ router.get(
     "/",
     authenticate,
     requirePermission("returns.view"),
-    validate(returnIdSchema),
     async (req, res, next) => {
         try {
             const search = String(req.query.search ?? "").trim();

@@ -55,96 +55,131 @@ export const Navbar: React.FC<NavbarProps> = ({
   const tabInfo = TAB_TITLES[activeTab] || { title: 'Maigamba Inventory', subtitle: 'Computer Technology' };
 
   return (
-    <header className="sticky top-0 z-20 bg-[#fcfaf7]/95 backdrop-blur-md border-b border-black/10 px-4 sm:px-8 py-3.5 transition-colors">
-      <div className="flex items-center justify-between gap-4">
-        {/* Left: Mobile hamburger + Active Tab Title */}
-        <div className="flex items-center gap-4 min-w-0">
+    <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
+      <div className="flex min-h-[56px] items-center justify-between gap-3">
+        {/* Left: mobile menu + page identity */}
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onOpenMobileSidebar}
-            className="lg:hidden p-1.5 text-[#1a1a1a] hover:bg-black/5 transition-colors"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 lg:hidden"
             aria-label="Open Navigation Menu"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="h-5 w-5" />
           </button>
 
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-serif text-[#1a1a1a] tracking-tight font-semibold truncate">
+              <div className="hidden h-2 w-2 rounded-full bg-slate-950 sm:block" />
+              <h1 className="truncate text-base font-bold tracking-tight text-slate-950 sm:text-xl">
                 {tabInfo.title}
               </h1>
-              <span className="hidden md:inline-block text-[9px] font-mono uppercase tracking-widest text-black/30 border border-black/10 px-1.5 py-0.2">
-                FOLIO
-              </span>
             </div>
-            <p className="hidden sm:block text-[10px] uppercase tracking-[0.2em] text-black/50 truncate mt-0.5">
+            <p className="mt-0.5 hidden truncate text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400 sm:block">
               {tabInfo.subtitle}
             </p>
           </div>
         </div>
 
-        {/* Center: Search */}
-        <div className="hidden md:flex items-center flex-1 max-w-xs lg:max-w-md mx-2">
-          <div className="relative w-full">
-            <Search className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-black/40" />
+        {/* Center: global search */}
+        <div className="hidden flex-1 justify-center px-4 md:flex">
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={`Search ${activeTab}...`}
-              className="w-full pl-9 pr-4 py-1.5 text-xs bg-[#f4f0ea] border border-black/10 rounded-sm text-[#1a1a1a] placeholder:text-black/40 focus:outline-none focus:border-black focus:bg-white transition-all font-sans"
+              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/80 pl-10 pr-16 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
             />
-            {searchQuery && (
+            {searchQuery ? (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-black/40 hover:text-black font-semibold"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-1 text-[9px] font-bold uppercase tracking-wider text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
               >
                 Clear
               </button>
+            ) : (
+              <span className="absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-400 lg:block">
+                SEARCH
+              </span>
             )}
           </div>
         </div>
 
-        {/* Right: Actions (Refresh, Live Status, User Profile) */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* Refresh button */}
+        {/* Right: sync + connection + profile */}
+        <div className="flex shrink-0 items-center gap-2">
           <button
             id="btn-global-refresh"
             type="button"
             onClick={() => refreshAll()}
             disabled={isGlobalRefreshing}
-            className={`flex items-center gap-2 px-3 py-1.5 border rounded-sm text-[10px] uppercase tracking-[0.15em] font-medium transition-all ${
-              isGlobalRefreshing
-                ? 'bg-[#1a1a1a] text-white border-black'
-                : 'bg-white border-black/15 text-[#1a1a1a] hover:border-black hover:bg-[#f4f0ea]'
-            }`}
+            className={`flex h-10 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-all ${isGlobalRefreshing
+                ? "border-slate-950 bg-slate-950 text-white"
+                : "border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950"
+              }`}
             title="Reload latest data from Database"
           >
-            <RotateCw className={`w-3 h-3 ${isGlobalRefreshing ? 'animate-spin text-white' : 'text-black/60'}`} />
-            <span className="hidden sm:inline">
-              {isGlobalRefreshing ? 'Syncing...' : lastUpdated ? `Synced ${lastUpdated}` : 'Sync Data'}
+            <RotateCw
+              className={`h-4 w-4 ${isGlobalRefreshing ? "animate-spin" : ""
+                }`}
+            />
+            <span className="hidden xl:inline">
+              {isGlobalRefreshing
+                ? "Syncing..."
+                : lastUpdated
+                  ? `Synced ${lastUpdated}`
+                  : "Sync Data"}
             </span>
           </button>
 
-          {/* Database connection badge */}
-          <div className="hidden xl:flex items-center gap-1.5 px-3 py-1 rounded-full border border-black/10 bg-[#f4f0ea] text-[9px] uppercase tracking-[0.2em] font-semibold text-black/70">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-            <span>Database Active</span>
+          <div className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 xl:flex">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.10)]" />
+            <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
+              Database Active
+            </span>
           </div>
 
-          {/* User badge */}
-          <div className="flex items-center gap-2.5 pl-2 border-l border-black/10">
-            <div className="w-8 h-8 rounded-full bg-[#1a1a1a] text-[#fcfaf7] font-serif italic text-xs flex items-center justify-center border border-black/20 shadow-xs">
-              {currentUser?.FullName ? currentUser.FullName.substring(0, 1).toUpperCase() : 'M'}
+          <div className="ml-1 flex items-center gap-2 border-l border-slate-200 pl-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white shadow-sm">
+              {currentUser?.FullName
+                ? currentUser.FullName.substring(0, 1).toUpperCase()
+                : "M"}
             </div>
-            <div className="hidden lg:block text-left leading-tight">
-              <p className="text-xs font-semibold text-[#1a1a1a] truncate max-w-[120px]">
-                {currentUser?.FullName}
+
+            <div className="hidden min-w-0 lg:block">
+              <p className="max-w-[140px] truncate text-xs font-bold text-slate-900">
+                {currentUser?.FullName || "Staff User"}
               </p>
-              <p className="text-[9px] uppercase tracking-[0.2em] text-black/40 capitalize">{currentUser?.Role}</p>
+              <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                {currentUser?.Role || "Admin"}
+              </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile search */}
+      <div className="mt-2 md:hidden">
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Search ${activeTab}...`}
+            className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-16 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-slate-400 focus:bg-white focus:ring-4 focus:ring-slate-100"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-900"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
     </header>

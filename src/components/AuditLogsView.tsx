@@ -262,342 +262,279 @@ export const AuditLogsView: React.FC = () => {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="min-h-full bg-[#f7f7f5] px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px] space-y-6">
 
-      {/* ================================================================
-                HEADER
-            ================================================================ */}
+        {/* Header */}
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-black/40">
+              <FileText className="h-3.5 w-3.5" />
+              Security / Activity
+            </div>
+            <h2 className="text-3xl font-semibold tracking-tight text-[#171717]">
+              Audit Logs
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-black/50">
+              Monitor system activity, user actions, record changes and security events.
+            </p>
+          </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-
-        <div>
-          <h2 className="text-2xl font-serif font-bold text-[#1a1a1a] tracking-tight">
-            System Audit Trail
-          </h2>
-
-          <p className="text-xs text-black/60 font-light mt-1">
-            Security audit logs tracking product creations,
-            price changes, sales, returns, and logins.
-          </p>
-        </div>
-
-        <button
-          onClick={() => refreshAuditLogs()}
-          disabled={loading.auditLogs}
-          className="p-2.5 rounded-sm border border-black/15 bg-white hover:bg-[#f4f0ea] text-[#1a1a1a] shadow-xs flex items-center gap-2 text-[10px] uppercase tracking-wider font-semibold self-start sm:self-auto transition-colors"
-        >
-          <RotateCw
-            className={`w-4 h-4 ${loading.auditLogs
-              ? "animate-spin text-black"
-              : ""
-              }`}
-          />
-
-          <span>
-            {loading.auditLogs
-              ? "Loading..."
-              : "Refresh Logs"}
-          </span>
-        </button>
-      </div>
-
-      {/* ================================================================
-                FILTERS
-            ================================================================ */}
-
-      <div className="bg-white p-4 rounded-sm border border-black/10 shadow-xs grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-
-        {/* Search */}
-
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-black/40" />
-
-          <input
-            type="text"
-            value={search}
-            onChange={(e) =>
-              setSearch(e.target.value)
-            }
-            placeholder="Search user, action, description, record..."
-            className="w-full pl-9 pr-3 py-2 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black text-[#1a1a1a]"
-          />
-        </div>
-
-        {/* Module */}
-
-        <div>
-          <select
-            value={moduleFilter}
-            onChange={(e) =>
-              setModuleFilter(e.target.value)
-            }
-            className="w-full py-2 px-3 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black text-[#1a1a1a]"
+          <button
+            onClick={() => refreshAuditLogs()}
+            disabled={loading.auditLogs}
+            className="group inline-flex h-11 items-center justify-center gap-2 self-start rounded-xl border border-black/10 bg-white px-5 text-xs font-bold text-black/70 shadow-sm transition-all hover:-translate-y-0.5 hover:border-black/20 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 lg:self-auto"
           >
-            <option value="ALL">
-              All Modules
-            </option>
-
-            {modules.map((module) => (
-              <option
-                key={module}
-                value={module}
-              >
-                {module}
-              </option>
-            ))}
-          </select>
+            <RotateCw
+              className={`h-4 w-4 transition-transform ${loading.auditLogs ? "animate-spin" : "group-hover:rotate-90"
+                }`}
+            />
+            {loading.auditLogs ? "Loading..." : "Refresh Logs"}
+          </button>
         </div>
 
-        {/* Action */}
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="group rounded-2xl border border-black/5 bg-[#171717] p-5 text-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl">
+            <div className="flex items-start justify-between">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
+                <FileText className="h-5 w-5 text-white/80" />
+              </div>
+              <span className="rounded-lg bg-white/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-white/50">
+                Total
+              </span>
+            </div>
+            <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
+              Total Activity
+            </p>
+            <p className="mt-1 text-2xl font-bold tracking-tight">
+              {normalizedLogs.length}
+            </p>
+            <p className="mt-1 text-xs text-white/40">Recorded system events</p>
+          </div>
 
-        <div>
-          <select
-            value={actionFilter}
-            onChange={(e) =>
-              setActionFilter(e.target.value)
-            }
-            className="w-full py-2 px-3 bg-[#fcfaf7] border border-black/15 rounded-sm focus:bg-white focus:ring-1 focus:ring-black text-[#1a1a1a]"
-          >
-            <option value="ALL">
-              All Actions
-            </option>
+          <div className="group rounded-2xl border border-black/5 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+            <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.18em] text-black/40">
+              Successful Events
+            </p>
+            <p className="mt-1 text-2xl font-bold tracking-tight text-[#171717]">
+              {normalizedLogs.filter(
+                (log) => getStatus(log).toLowerCase() === "success"
+              ).length}
+            </p>
+            <p className="mt-1 text-xs text-black/40">Completed successfully</p>
+          </div>
 
-            {actions.map((action) => (
-              <option
-                key={action}
-                value={action}
-              >
-                {action}
-              </option>
-            ))}
-          </select>
+          <div className="group rounded-2xl border border-black/5 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+              <FileText className="h-5 w-5" />
+            </div>
+            <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.18em] text-black/40">
+              Active Modules
+            </p>
+            <p className="mt-1 text-2xl font-bold tracking-tight text-[#171717]">
+              {modules.length}
+            </p>
+            <p className="mt-1 text-xs text-black/40">Modules generating activity</p>
+          </div>
+
+          <div className="group rounded-2xl border border-black/5 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-xl">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-700">
+              <Search className="h-5 w-5" />
+            </div>
+            <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.18em] text-black/40">
+              Current Results
+            </p>
+            <p className="mt-1 text-2xl font-bold tracking-tight text-[#171717]">
+              {filteredLogs.length}
+            </p>
+            <p className="mt-1 text-xs text-black/40">Matching active filters</p>
+          </div>
         </div>
-      </div>
 
-      {/* ================================================================
-                SUMMARY
-            ================================================================ */}
+        {/* Filters */}
+        <div className="rounded-2xl border border-black/5 bg-white p-4 shadow-sm">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-black/35" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search user, action, description, record ID..."
+                className="h-11 w-full rounded-xl border border-black/10 bg-[#f8f8f6] pl-11 pr-4 text-sm text-[#171717] outline-none transition-all placeholder:text-black/35 focus:border-black/25 focus:bg-white focus:ring-4 focus:ring-black/5"
+              />
+            </div>
 
-      <div className="flex items-center justify-between text-xs text-black/50">
-        <span>
-          Showing{" "}
-          <strong className="text-black/80">
-            {filteredLogs.length}
-          </strong>{" "}
-          of{" "}
-          <strong className="text-black/80">
-            {normalizedLogs.length}
-          </strong>{" "}
-          audit log
-          {normalizedLogs.length === 1
-            ? ""
-            : "s"}
-        </span>
-      </div>
+            <select
+              value={moduleFilter}
+              onChange={(e) => setModuleFilter(e.target.value)}
+              className="h-11 rounded-xl border border-black/10 bg-[#f8f8f6] px-3 text-sm text-[#171717] outline-none transition-all focus:border-black/25 focus:bg-white focus:ring-4 focus:ring-black/5"
+            >
+              <option value="ALL">All Modules</option>
+              {modules.map((module) => (
+                <option key={module} value={module}>{module}</option>
+              ))}
+            </select>
 
-      {/* ================================================================
-                TABLE
-            ================================================================ */}
+            <select
+              value={actionFilter}
+              onChange={(e) => setActionFilter(e.target.value)}
+              className="h-11 rounded-xl border border-black/10 bg-[#f8f8f6] px-3 text-sm text-[#171717] outline-none transition-all focus:border-black/25 focus:bg-white focus:ring-4 focus:ring-black/5"
+            >
+              <option value="ALL">All Actions</option>
+              {actions.map((action) => (
+                <option key={action} value={action}>{action}</option>
+              ))}
+            </select>
+          </div>
 
-      <div className="bg-white rounded-sm border border-black/10 shadow-xs overflow-hidden">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-black/40">
+            <span>
+              Showing <strong className="text-black/75">{filteredLogs.length}</strong>{" "}
+              of <strong className="text-black/75">{normalizedLogs.length}</strong> audit logs
+            </span>
 
-        <div className="overflow-x-auto">
+            {(search || moduleFilter !== "ALL" || actionFilter !== "ALL") && (
+              <button
+                onClick={() => {
+                  setSearch("");
+                  setModuleFilter("ALL");
+                  setActionFilter("ALL");
+                }}
+                className="rounded-lg border border-black/10 px-3 py-1.5 font-semibold text-black/55 transition hover:bg-[#f7f7f5] hover:text-black"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </div>
 
-          <table className="w-full text-left text-xs">
+        {/* Audit Ledger */}
+        <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-black/5 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-[#171717]">System Activity</h3>
+              <p className="mt-0.5 text-xs text-black/40">
+                Record of actions performed in the inventory system
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#f7f7f5] px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-black/50">
+              {filteredLogs.length} events
+            </div>
+          </div>
 
-            {/* ----------------------------------------------------
-                            TABLE HEADER
-                        ---------------------------------------------------- */}
-
-            <thead className="bg-[#fcfaf7] border-b border-black/10 text-black/60 font-semibold uppercase tracking-[0.15em] text-[10px]">
-
-              <tr>
-
-                <th className="py-3 px-4">
-                  Timestamp
-                </th>
-
-                <th className="py-3 px-4">
-                  Action
-                </th>
-
-                <th className="py-3 px-4">
-                  Module
-                </th>
-
-                <th className="py-3 px-4">
-                  Record ID
-                </th>
-
-                <th className="py-3 px-4">
-                  Description
-                </th>
-
-                <th className="py-3 px-4">
-                  User
-                </th>
-
-                <th className="py-3 px-4">
-                  Status
-                </th>
-
-              </tr>
-
-            </thead>
-
-            {/* ----------------------------------------------------
-                            TABLE BODY
-                        ---------------------------------------------------- */}
-
-            <tbody className="divide-y divide-black/5 text-black/80">
-
-              {filteredLogs.length === 0 ? (
-
-                <tr>
-
-                  <td
-                    colSpan={7}
-                    className="py-12 text-center text-black/40 font-light"
-                  >
-
-                    <FileText className="w-8 h-8 text-black/20 mx-auto mb-2" />
-
-                    <p className="font-semibold text-black/60">
-                      No audit logs recorded
-                    </p>
-
-                    {normalizedLogs.length > 0 && (
-                      <p className="text-[11px] mt-1">
-                        No logs match the current filters.
-                      </p>
-                    )}
-
-                  </td>
-
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1150px] text-left">
+              <thead className="border-b border-black/5 bg-[#fafaf8]">
+                <tr className="text-[10px] font-bold uppercase tracking-[0.16em] text-black/40">
+                  <th className="px-5 py-3.5">Timestamp</th>
+                  <th className="px-5 py-3.5">Action</th>
+                  <th className="px-5 py-3.5">Module</th>
+                  <th className="px-5 py-3.5">Record ID</th>
+                  <th className="px-5 py-3.5">Description</th>
+                  <th className="px-5 py-3.5">User</th>
+                  <th className="px-5 py-3.5">Status</th>
                 </tr>
+              </thead>
 
-              ) : (
+              <tbody className="divide-y divide-black/5">
+                {filteredLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-20 text-center">
+                      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f7f7f5]">
+                        <FileText className="h-6 w-6 text-black/20" />
+                      </div>
+                      <p className="mt-4 text-sm font-bold text-black/60">
+                        No audit logs found
+                      </p>
+                      <p className="mt-1 text-xs text-black/35">
+                        {normalizedLogs.length > 0
+                          ? "No logs match the current filters."
+                          : "No system activity has been recorded yet."}
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredLogs.map((log) => {
+                    const status = getStatus(log);
+                    const isSuccess = status.toLowerCase() === "success";
 
-                filteredLogs.map((log) => {
-
-                  const status =
-                    getStatus(log);
-
-                  const isSuccess =
-                    status.toLowerCase() ===
-                    "success";
-
-                  return (
-                    <tr
-                      key={
-                        log.logId ||
-                        `${log.timestamp}-${log.userId}-${log.action}`
-                      }
-                      className="hover:bg-[#fcfaf7]/70 transition-colors"
-                    >
-
-                      {/* Timestamp */}
-
-                      <td className="py-3 px-4 text-black/60 font-light whitespace-nowrap">
-                        {log.timestamp
-                          ? formatDate(
-                            log.timestamp
-                          )
-                          : "—"}
-                      </td>
-
-                      {/* Action */}
-
-                      <td className="py-3 px-4">
-
-                        <span className="px-2 py-0.5 rounded-sm font-mono text-[9px] font-bold bg-[#f4f0ea] text-black/80 border border-black/10 uppercase">
-                          {log.action ||
-                            "—"}
-                        </span>
-
-                      </td>
-
-                      {/* Module */}
-
-                      <td className="py-3 px-4 font-serif font-semibold text-[#1a1a1a]">
-                        {log.module ||
-                          "—"}
-                      </td>
-
-                      {/* Record ID */}
-
-                      <td className="py-3 px-4 font-mono text-black/50 text-[11px] whitespace-nowrap">
-                        {log.recordId ||
-                          "—"}
-                      </td>
-
-                      {/* Description */}
-
-                      <td className="py-3 px-4 text-black/80 max-w-sm">
-                        <div
-                          className="truncate"
-                          title={
-                            log.description ||
-                            ""
-                          }
-                        >
-                          {log.description ||
-                            "—"}
-                        </div>
-                      </td>
-
-                      {/* User */}
-
-                      <td className="py-3 px-4 text-black/60 font-light">
-
-                        <div className="font-medium text-black/80">
-                          {getUserDisplay(
-                            log
-                          )}
-                        </div>
-
-                        {log.userId && (
-                          <div className="font-mono text-[9px] text-black/40 mt-0.5">
-                            {
-                              log.userId
-                            }
-                          </div>
-                        )}
-
-                      </td>
-
-                      {/* Status */}
-
-                      <td className="py-3 px-4">
-
-                        <span
-                          className={`inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm border ${isSuccess
-                            ? "text-emerald-800 bg-emerald-50 border-emerald-200"
-                            : "text-red-800 bg-red-50 border-red-200"
-                            }`}
-                        >
-
-                          {isSuccess && (
-                            <CheckCircle2 className="w-3 h-3" />
-                          )}
-
-                          <span>
-                            {
-                              status
-                            }
+                    return (
+                      <tr
+                        key={log.logId || `${log.timestamp}-${log.userId}-${log.action}`}
+                        className="group transition-colors hover:bg-[#fafaf8]"
+                      >
+                        <td className="whitespace-nowrap px-5 py-4">
+                          <span className="text-xs font-medium text-black/65">
+                            {log.timestamp ? formatDate(log.timestamp) : "—"}
                           </span>
+                        </td>
 
-                        </span>
+                        <td className="px-5 py-4">
+                          <span className="inline-flex rounded-lg border border-black/5 bg-[#f3f3f0] px-2.5 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wide text-black/65">
+                            {log.action || "—"}
+                          </span>
+                        </td>
 
-                      </td>
+                        <td className="px-5 py-4">
+                          <span className="text-xs font-bold text-[#171717]">
+                            {log.module || "—"}
+                          </span>
+                        </td>
 
-                    </tr>
-                  );
-                })
-              )}
+                        <td className="px-5 py-4">
+                          <span className="font-mono text-[10px] text-black/40">
+                            {log.recordId || "—"}
+                          </span>
+                        </td>
 
-            </tbody>
-          </table>
+                        <td className="max-w-[330px] px-5 py-4">
+                          <p
+                            className="truncate text-xs font-medium text-black/70"
+                            title={log.description || ""}
+                          >
+                            {log.description || "—"}
+                          </p>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <div className="max-w-[190px]">
+                            <p
+                              className="truncate text-xs font-semibold text-black/70"
+                              title={getUserDisplay(log)}
+                            >
+                              {getUserDisplay(log)}
+                            </p>
+                            {log.userId && (
+                              <p className="mt-0.5 truncate font-mono text-[9px] text-black/35">
+                                {log.userId}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="px-5 py-4">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide ${isSuccess
+                              ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                              : "border-rose-100 bg-rose-50 text-rose-700"
+                              }`}
+                          >
+                            {isSuccess && <CheckCircle2 className="h-3.5 w-3.5" />}
+                            {status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

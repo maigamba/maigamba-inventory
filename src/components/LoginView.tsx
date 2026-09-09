@@ -25,7 +25,7 @@ export const LoginView: React.FC = () => {
   );
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
 
@@ -53,7 +53,7 @@ export const LoginView: React.FC = () => {
       if (!response?.success || !response?.data?.user) {
         throw new Error(
           response?.message ||
-            'Authentication failed. Please check your credentials.'
+          'Authentication failed. Please check your credentials.'
         );
       }
 
@@ -71,36 +71,36 @@ export const LoginView: React.FC = () => {
       //
       const permissions = Array.isArray(response.data?.permissions)
         ? response.data.permissions
-            .map((permission: unknown) => String(permission).trim())
-            .filter(Boolean)
+          .map((permission: unknown) => String(permission).trim())
+          .filter(Boolean)
         : [];
 
       // Normalize PostgreSQL/API field names to the frontend UserProfile shape.
       const userSession: UserProfile = {
         UserID: String(
           apiUser?.userId ??
-            apiUser?.UserID ??
-            apiUser?.id ??
-            ''
+          apiUser?.UserID ??
+          apiUser?.id ??
+          ''
         ).trim(),
 
         Username: String(
           apiUser?.username ??
-            apiUser?.Username ??
-            apiUser?.email ??
-            loginValue
+          apiUser?.Username ??
+          apiUser?.email ??
+          loginValue
         ).trim(),
 
         FullName: String(
           apiUser?.fullName ??
-            apiUser?.FullName ??
-            loginValue
+          apiUser?.FullName ??
+          loginValue
         ).trim(),
 
         Email: String(
           apiUser?.email ??
-            apiUser?.Email ??
-            loginValue
+          apiUser?.Email ??
+          loginValue
         ).trim(),
 
         Phone:
@@ -110,14 +110,14 @@ export const LoginView: React.FC = () => {
 
         Role: String(
           apiUser?.role ??
-            apiUser?.Role ??
-            'Sales Staff'
+          apiUser?.Role ??
+          'Sales Staff'
         ).trim(),
 
         Status: String(
           apiUser?.status ??
-            apiUser?.Status ??
-            'Active'
+          apiUser?.Status ??
+          'Active'
         ).trim(),
 
         Permissions: permissions,
@@ -177,7 +177,7 @@ export const LoginView: React.FC = () => {
       addToast(
         'error',
         error?.message ||
-          'Unable to sign in. Please check the server and your credentials.',
+        'Unable to sign in. Please check the server and your credentials.',
         'Authentication Failed'
       );
     } finally {
@@ -201,389 +201,368 @@ export const LoginView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-[#fcfaf7] text-[#1a1a1a] antialiased selection:bg-[#1a1a1a] selection:text-[#fcfaf7] relative overflow-hidden">
-      <div className="relative z-10 w-full flex flex-col lg:flex-row min-h-screen">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-900 antialiased">
+      <div className="min-h-screen lg:grid lg:grid-cols-[1.15fr_0.85fr]">
 
-        {/* LEFT SIDE */}
-        <div className="lg:w-7/12 relative flex flex-col justify-between p-8 sm:p-12 lg:p-16 border-b lg:border-b-0 lg:border-r border-black/15 bg-[#0f0f0f] text-[#fcfaf7] overflow-hidden">
-
+        {/* ================================================================
+            BRAND / PRODUCT PANEL
+        ================================================================ */}
+        <section className="relative hidden min-h-screen overflow-hidden bg-slate-950 text-white lg:flex lg:flex-col">
+          {/* Background image */}
           <div
-            className="absolute inset-0 bg-cover bg-center opacity-15 mix-blend-luminosity pointer-events-none scale-105"
+            className="absolute inset-0 bg-cover bg-center opacity-[0.12]"
             style={{
               backgroundImage:
-                "url('https://images.unsplash.com/photo-1547082299-de196ea013d6?auto=format&fit=crop&w=1600&q=80')",
+                "url('https://images.unsplash.com/photo-1547082299-de196ea013d6?auto=format&fit=crop&w=1800&q=85')",
             }}
           />
 
-          <div className="absolute top-0 right-0 w-96 h-full bg-gradient-to-l from-[#1a1a1a]/80 via-transparent to-transparent pointer-events-none" />
+          {/* Ambient gradients */}
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-slate-950/95 to-slate-900" />
+          <div className="absolute -right-40 top-1/4 h-[32rem] w-[32rem] rounded-full bg-amber-400/[0.06] blur-3xl" />
+          <div className="absolute -bottom-40 -left-40 h-[30rem] w-[30rem] rounded-full bg-blue-400/[0.04] blur-3xl" />
 
-          <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-
-          <div className="relative z-10">
-
-            {/* BRAND HEADER */}
-            <div className="flex items-center justify-between gap-4 mb-10">
-              <div className="flex items-center gap-3.5">
-                <div className="w-11 h-11 border border-white/25 bg-[#202020] flex items-center justify-center text-white shadow-md">
-                  <Monitor className="w-5 h-5 text-amber-200" />
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-lg font-serif tracking-widest text-white uppercase font-semibold">
-                      MAIGAMBA
-                    </h1>
-
-                    <span className="text-[10px] text-amber-300 font-mono tracking-widest">
-                      TECH
-                    </span>
+          <div className="relative z-10 flex min-h-screen flex-col justify-between p-8 xl:p-12">
+            {/* Brand */}
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-xl">
+                    <Monitor className="h-5 w-5" />
                   </div>
 
-                  <p className="text-[9px] uppercase tracking-[0.3em] text-white/50 font-medium">
-                    Computer Technology & Electronics
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h1 className="text-base font-bold tracking-[0.2em]">
+                        MAIGAMBA
+                      </h1>
+                      <span className="rounded-full border border-amber-300/30 px-1.5 py-0.5 text-[7px] font-bold uppercase tracking-wider text-amber-300">
+                        TECH
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.22em] text-slate-500">
+                      Computer Technology
+                    </p>
+                  </div>
+                </div>
+
+                <div className="hidden xl:flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.7)]" />
+                  System Online
                 </div>
               </div>
 
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/15 rounded-xs text-[11px] text-white/80">
-                <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="font-light">
-                  Farm Center, Kano State
-                </span>
-              </div>
-            </div>
-
-            {/* HEADLINE */}
-            <div className="max-w-xl space-y-4">
-              <div className="inline-flex items-center gap-2 border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[9px] uppercase tracking-[0.25em] text-amber-300 font-mono">
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
-                <span>
-                  Enterprise Hub • Official Hardware Depot
-                </span>
-              </div>
-
-              <h2 className="text-3xl sm:text-5xl font-serif text-white tracking-tight font-normal leading-[1.15]">
-                Computer Systems, Components &{' '}
-                <span className="italic font-light text-amber-100">
-                  Commercial Ledger
-                </span>
-              </h2>
-
-              <p className="text-xs sm:text-sm text-white/70 font-light leading-relaxed max-w-lg">
-                High-performance laptops, custom PC desktop towers,
-                workstation components, point-of-sale register, and
-                inventory management.
-              </p>
-            </div>
-
-            {/* SHOWCASE */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 my-8 max-w-2xl">
-
-              <div className="group relative border border-white/15 bg-[#181818]/90 p-3 rounded-xs overflow-hidden transition-all hover:border-white/30">
-                <div className="h-24 w-full rounded-xs overflow-hidden mb-2 bg-[#222]">
-                  <img
-                    src="https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=600&q=80"
-                    alt="Laptops & Ultrabooks"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-85"
-                  />
+              {/* Hero */}
+              <div className="mt-20 max-w-2xl xl:mt-28">
+                <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-300/[0.08] px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Secure Staff Workspace
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-white font-medium">
-                  <span>Laptops & Notebooks</span>
-                  <Laptop className="w-3.5 h-3.5 text-amber-300" />
-                </div>
-
-                <p className="text-[10px] text-white/50 font-light mt-0.5">
-                  Core i5/i7/M-Series, ThinkPads, MacBooks
-                </p>
-              </div>
-
-              <div className="group relative border border-white/15 bg-[#181818]/90 p-3 rounded-xs overflow-hidden transition-all hover:border-white/30">
-                <div className="h-24 w-full rounded-xs overflow-hidden mb-2 bg-[#222]">
-                  <img
-                    src="https://images.unsplash.com/photo-1593642702821-c8da6771f0c6?auto=format&fit=crop&w=600&q=80"
-                    alt="Desktops & Monitors"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-85"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-white font-medium">
-                  <span>Desktops & Displays</span>
-                  <Monitor className="w-3.5 h-3.5 text-amber-300" />
-                </div>
-
-                <p className="text-[10px] text-white/50 font-light mt-0.5">
-                  Gaming rigs, UltraSharp panels, towers
-                </p>
-              </div>
-
-              <div className="group relative border border-white/15 bg-[#181818]/90 p-3 rounded-xs overflow-hidden transition-all hover:border-white/30">
-                <div className="h-24 w-full rounded-xs overflow-hidden mb-2 bg-[#222]">
-                  <img
-                    src="https://images.unsplash.com/photo-1591799264318-7e6ef8ddb7ea?auto=format&fit=crop&w=600&q=80"
-                    alt="Processors & GPUs"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 opacity-85"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-white font-medium">
-                  <span>Components & Parts</span>
-                  <Cpu className="w-3.5 h-3.5 text-amber-300" />
-                </div>
-
-                <p className="text-[10px] text-white/50 font-light mt-0.5">
-                  SSDs, RAM, graphics, motherboards
-                </p>
-              </div>
-
-            </div>
-          </div>
-
-          {/* STORE INFO */}
-          <div className="relative z-10 mt-6 pt-6 border-t border-white/10 space-y-4">
-            <div className="p-4 bg-white/5 border border-white/15 rounded-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xs mt-0.5">
-                  <MapPin className="w-4 h-4" />
-                </div>
-
-                <div>
-                  <span className="text-[9px] uppercase tracking-[0.25em] text-amber-300 font-mono font-semibold block">
-                    Store Location & Commercial Address
+                <h2 className="text-4xl font-semibold leading-[1.08] tracking-tight xl:text-6xl">
+                  Manage your
+                  <span className="block text-slate-300">
+                    inventory with confidence.
                   </span>
+                </h2>
 
-                  <p className="text-sm font-serif font-medium text-white tracking-wide mt-0.5">
-                    No. 101 yayo Plaza farm Center Kano State. Nigeria
-                  </p>
-
-                  <p className="text-xs text-white/60 font-light mt-0.5">
-                    Sales, Hardware Support, Device Repairs,
-                    Wholesale & Retail Electronics
-                  </p>
-                </div>
+                <p className="mt-6 max-w-xl text-sm leading-7 text-slate-400 xl:text-base">
+                  A secure workspace for products, sales, purchases,
+                  customers, expenses and business intelligence — built for
+                  Maigamba Computer Technology.
+                </p>
               </div>
 
-              <div className="flex sm:flex-col items-center sm:items-end justify-between gap-1 text-[11px] text-white/70 border-t sm:border-t-0 pt-2 sm:pt-0 border-white/10">
-                <div className="flex items-center gap-1.5 font-mono text-amber-200">
-                  <Phone className="w-3.5 h-3.5" />
-                  <span>+234 800 MAIGAMBA</span>
-                </div>
+              {/* Feature cards */}
+              <div className="mt-12 grid max-w-2xl grid-cols-3 gap-3">
+                {[
+                  {
+                    icon: Laptop,
+                    title: "Inventory",
+                    text: "Products & stock",
+                  },
+                  {
+                    icon: Monitor,
+                    title: "Point of Sale",
+                    text: "Fast checkout",
+                  },
+                  {
+                    icon: Cpu,
+                    title: "Analytics",
+                    text: "Business insights",
+                  },
+                ].map((feature) => {
+                  const Icon = feature.icon;
 
-                <span className="text-[10px] text-white/40">
-                  Mon - Sat: 8:30 AM - 7:00 PM
-                </span>
+                  return (
+                    <div
+                      key={feature.title}
+                      className="group rounded-2xl border border-white/10 bg-white/[0.045] p-4 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.07]"
+                    >
+                      <div className="mb-7 flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.07] text-amber-300 transition-transform duration-300 group-hover:scale-105">
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <p className="text-xs font-semibold text-white">
+                        {feature.title}
+                      </p>
+                      <p className="mt-1 text-[10px] text-slate-500">
+                        {feature.text}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-4 text-[10px] uppercase tracking-[0.2em] text-white/40">
-              <div>
-                <span>
-                  © {new Date().getFullYear()} Maigamba Computer Technology
-                </span>
-              </div>
+            {/* Bottom information */}
+            <div className="border-t border-white/10 pt-6">
+              <div className="flex flex-wrap items-center justify-between gap-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.06] text-amber-300">
+                    <MapPin className="h-4 w-4" />
+                  </div>
 
-              <div className="flex items-center gap-3 font-mono">
-                <span className="text-white/60">Kano Hub</span>
-                <span>•</span>
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                      Kano Hub
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-300">
+                      Farm Center, Kano State, Nigeria
+                    </p>
+                  </div>
+                </div>
 
-                <span className="flex items-center gap-1.5 text-white/80">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  Live Sync Active
-                </span>
+                <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                  <span>Maigamba Inventory</span>
+                  <span>•</span>
+                  <span>{new Date().getFullYear()}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* RIGHT SIDE */}
-        <div className="lg:w-5/12 flex items-center justify-center p-6 sm:p-12 lg:p-16 bg-[#fcfaf7]">
-          <div className="w-full max-w-md space-y-8">
+        {/* ================================================================
+            LOGIN PANEL
+        ================================================================ */}
+        <section className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-50 px-5 py-8 sm:px-8">
+          <div className="absolute -right-32 -top-32 h-80 w-80 rounded-full bg-amber-200/30 blur-3xl" />
+          <div className="absolute -bottom-32 -left-32 h-80 w-80 rounded-full bg-slate-200/60 blur-3xl" />
 
-            <div className="space-y-2 text-left">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-black/5 border border-black/10 rounded-full text-[9px] uppercase tracking-[0.2em] text-black/60 font-mono">
-                <Sparkles className="w-3 h-3 text-amber-600" />
-                <span>Staff Portal</span>
-              </div>
+          <div className="relative z-10 w-full max-w-md">
+            {/* Mobile brand */}
+            <div className="mb-10 flex items-center justify-between lg:hidden">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-white">
+                  <Monitor className="h-5 w-5" />
+                </div>
 
-              <h3 className="text-2xl sm:text-3xl font-serif text-[#1a1a1a] tracking-tight font-normal">
-                Sign in to Console
-              </h3>
-
-              <p className="text-xs text-black/60 leading-relaxed font-light">
-                Authorized access for Maigamba Computer Technology
-                staff at No. 101 yayo Plaza farm Center Kano State.
-              </p>
-            </div>
-
-            <form
-              onSubmit={handleSignIn}
-              className="space-y-5"
-            >
-
-              {/* USERNAME */}
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="login-email"
-                  className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.2em]"
-                >
-                  Staff Email or Username
-                </label>
-
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-black/40">
-                    <Mail className="w-4 h-4" />
-                  </div>
-
-                  <input
-                    id="login-email"
-                    type="text"
-                    required
-                    value={emailOrUsername}
-                    onChange={(e) =>
-                      setEmailOrUsername(e.target.value)
-                    }
-                    placeholder="admin@maigamba.com"
-                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-black/15 rounded-xs text-xs text-[#1a1a1a] placeholder-black/30 focus:outline-none focus:border-black transition-all"
-                  />
+                <div>
+                  <p className="text-sm font-bold tracking-[0.18em] text-slate-950">
+                    MAIGAMBA
+                  </p>
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Computer Technology
+                  </p>
                 </div>
               </div>
 
-              {/* PASSWORD */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-[8px] font-bold uppercase tracking-wider text-slate-500 shadow-sm">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Online
+              </div>
+            </div>
+
+            {/* Login card */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_25px_70px_rgba(15,23,42,0.10)] sm:p-8">
+              <div className="mb-8">
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-950/15">
+                  <Lock className="h-5 w-5" />
+                </div>
+
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[8px] font-bold uppercase tracking-[0.18em] text-amber-700">
+                  <ShieldCheck className="h-3 w-3" />
+                  Authorized Access
+                </div>
+
+                <h3 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+                  Welcome back
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Sign in to access your Maigamba Inventory workspace.
+                </p>
+              </div>
+
+              <form onSubmit={handleSignIn} className="space-y-5">
+                {/* Email */}
+                <div>
                   <label
-                    htmlFor="login-password"
-                    className="block text-[10px] font-semibold text-black/60 uppercase tracking-[0.2em]"
+                    htmlFor="login-email"
+                    className="mb-2 block text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500"
                   >
-                    Password
+                    Email or Username
                   </label>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowForgotPassword(true)
-                    }
-                    className="text-[10px] uppercase tracking-wider text-black/50 hover:text-black underline transition-colors"
-                  >
-                    Reset?
-                  </button>
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                    <input
+                      id="login-email"
+                      type="text"
+                      required
+                      autoComplete="username"
+                      value={emailOrUsername}
+                      onChange={(e) =>
+                        setEmailOrUsername(e.target.value)
+                      }
+                      placeholder="admin@maigamba.com"
+                      className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-slate-950 focus:bg-white focus:ring-4 focus:ring-slate-950/5"
+                    />
+                  </div>
                 </div>
 
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-black/40">
-                    <Lock className="w-4 h-4" />
+                {/* Password */}
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label
+                      htmlFor="login-password"
+                      className="block text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500"
+                    >
+                      Password
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="text-[10px] font-semibold text-slate-400 transition-colors hover:text-slate-950"
+                    >
+                      Forgot password?
+                    </button>
                   </div>
 
-                  <input
-                    id="login-password"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={password}
-                    onChange={(e) =>
-                      setPassword(e.target.value)
-                    }
-                    placeholder="••••••••••••"
-                    className="w-full pl-10 pr-10 py-2.5 bg-white border border-black/15 rounded-xs text-xs text-[#1a1a1a] placeholder-black/30 focus:outline-none focus:border-black transition-all"
-                  />
+                  <div className="relative">
+                    <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowPassword(!showPassword)
-                    }
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-black/40 hover:text-black transition-colors"
-                    aria-label="Toggle password visibility"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="w-4 h-4" />
-                    ) : (
-                      <Eye className="w-4 h-4" />
-                    )}
-                  </button>
+                    <input
+                      id="login-password"
+                      type={showPassword ? "text" : "password"}
+                      required
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-11 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-slate-950 focus:bg-white focus:ring-4 focus:ring-slate-950/5"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-0 top-0 flex h-12 w-12 items-center justify-center text-slate-400 transition-colors hover:text-slate-950"
+                      aria-label={
+                        showPassword
+                          ? "Hide password"
+                          : "Show password"
+                      }
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* REMEMBER */}
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2.5 cursor-pointer">
+                {/* Remember */}
+                <label className="flex cursor-pointer items-center gap-2.5">
                   <input
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) =>
                       setRememberMe(e.target.checked)
                     }
-                    className="w-3.5 h-3.5 rounded-xs accent-[#1a1a1a] border-black/30"
+                    className="h-4 w-4 rounded border-slate-300 accent-slate-950"
                   />
-
-                  <span className="text-xs text-black/60 font-light">
-                    Remember session on this workstation
+                  <span className="text-xs text-slate-500">
+                    Remember me on this workstation
                   </span>
                 </label>
+
+                {/* Sign in */}
+                <button
+                  id="btn-sign-in"
+                  type="submit"
+                  disabled={isLoading}
+                  className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-lg shadow-slate-950/15 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isLoading ? (
+                    <>
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign in to Inventory</span>
+                      <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Security footer */}
+              <div className="mt-7 flex items-start gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3.5">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-700">
+                    Secure staff login
+                  </p>
+                  <p className="mt-1 text-[10px] leading-5 text-slate-400">
+                    Access is protected by authenticated sessions and
+                    role-based permissions.
+                  </p>
+                </div>
               </div>
-
-              {/* SIGN IN */}
-              <button
-                id="btn-sign-in"
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-3.5 px-6 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] text-[10px] uppercase tracking-[0.25em] font-semibold rounded-xs transition-all flex items-center justify-center gap-2 group disabled:opacity-50 cursor-pointer shadow-sm"
-              >
-                {isLoading ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    <span>
-                      Verifying Authority...
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span>
-                      Enter Inventory Console
-                    </span>
-
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </>
-                )}
-              </button>
-            </form>
-          </div>
-        </div>
-      </div>
-
-      {/* FORGOT PASSWORD */}
-      {showForgotPassword && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-sm bg-white border border-black/20 rounded-xs p-6 space-y-4 shadow-xl">
-
-            <div className="flex items-center gap-3 text-[#1a1a1a]">
-              <div className="p-2 border border-black/10 bg-[#f4f0ea]">
-                <Lock className="w-4 h-4" />
-              </div>
-
-              <h4 className="text-base font-serif font-bold text-[#1a1a1a]">
-                Reset Staff Credentials
-              </h4>
             </div>
 
-            <p className="text-xs text-black/70 leading-relaxed font-light">
-              Staff passwords can be updated by an authorized
-              Administrator through the Users section of the
-              inventory system.
+            <p className="mt-6 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Maigamba Computer Technology • Staff Portal
             </p>
+          </div>
+        </section>
+      </div>
 
-            <div className="pt-2 flex justify-end">
+      {/* ================================================================
+          FORGOT PASSWORD MODAL
+      ================================================================ */}
+      {showForgotPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
+                <Lock className="h-5 w-5" />
+              </div>
+
+              <div>
+                <h4 className="text-lg font-bold tracking-tight text-slate-950">
+                  Reset staff credentials
+                </h4>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Staff passwords can be updated by an authorized
+                  Administrator through the Users section.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                onClick={() =>
-                  setShowForgotPassword(false)
-                }
-                className="px-4 py-2 bg-[#1a1a1a] hover:bg-black text-[#fcfaf7] text-[10px] uppercase tracking-wider font-semibold rounded-xs transition-colors"
+                onClick={() => setShowForgotPassword(false)}
+                className="rounded-xl bg-slate-950 px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white transition-all hover:bg-slate-800"
               >
-                Dismiss
+                Close
               </button>
             </div>
           </div>

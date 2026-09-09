@@ -8,44 +8,98 @@ import {
     requirePermission,
     AuthenticatedRequest,
 } from "../middleware/auth";
-import { validate } from "../middleware/validate";
 
 const router = Router();
+
+/* ============================================================================
+   BUSINESS CONFIGURATION SCHEMA
+============================================================================ */
 
 const businessConfigSchema = z.object({
     body: z.object({
         SettingID: z.string().trim().max(100).optional(),
-        BusinessName: z.string().trim().min(1).max(150),
-        Address: z.string().trim().max(300).optional().default(""),
-        Phone: z.string().trim().max(50).optional().default(""),
-        Email: z.string().trim().email().max(254),
-        Currency: z.string().trim().min(1).max(10),
-        CurrencySymbol: z.string().trim().min(1).max(5),
-        TaxRate: z.coerce.number().finite().min(0).max(100),
-        LowStockThreshold: z.coerce.number().finite().int().min(1).max(1000000),
-        InvoicePrefix: z.string().trim().max(30).optional().default("INV-"),
-        InvoiceFooterNote: z.string().max(2000).optional().default(""),
-        UpdatedAt: z.string().trim().max(50).optional(),
+
+        BusinessName: z
+            .string()
+            .trim()
+            .min(1)
+            .max(150),
+
+        Address: z
+            .string()
+            .trim()
+            .max(300)
+            .optional()
+            .default(""),
+
+        Phone: z
+            .string()
+            .trim()
+            .max(50)
+            .optional()
+            .default(""),
+
+        Email: z
+            .string()
+            .trim()
+            .email()
+            .max(254),
+
+        Currency: z
+            .string()
+            .trim()
+            .min(1)
+            .max(10),
+
+        CurrencySymbol: z
+            .string()
+            .trim()
+            .min(1)
+            .max(5),
+
+        TaxRate: z
+            .coerce
+            .number()
+            .finite()
+            .min(0)
+            .max(100),
+
+        LowStockThreshold: z
+            .coerce
+            .number()
+            .finite()
+            .int()
+            .min(1)
+            .max(1000000),
+
+        InvoicePrefix: z
+            .string()
+            .trim()
+            .max(30)
+            .optional()
+            .default("INV-"),
+
+        InvoiceFooterNote: z
+            .string()
+            .max(2000)
+            .optional()
+            .default(""),
+
+        UpdatedAt: z
+            .string()
+            .trim()
+            .max(50)
+            .optional(),
     }),
 });
 
+/* ============================================================================
+   SETTINGS ROUTES
+============================================================================ */
 
-/*
-|--------------------------------------------------------------------------
-| SETTINGS ROUTES
-|--------------------------------------------------------------------------
-|
-| Permissions:
-|
-| settings.view
-| settings.manage
-|
-*/
-
-
-// ============================================================================
-// GET ALL SETTINGS
-// ============================================================================
+/* ============================================================================
+   GET ALL SETTINGS
+============================================================================ */
 
 router.get(
     "/",
@@ -53,12 +107,11 @@ router.get(
     requirePermission("settings.view"),
     async (_req, res, next) => {
         try {
-            const settings =
-                await prisma.setting.findMany({
-                    orderBy: {
-                        settingName: "asc",
-                    },
-                });
+            const settings = await prisma.setting.findMany({
+                orderBy: {
+                    settingName: "asc",
+                },
+            });
 
             res.json({
                 success: true,
@@ -75,10 +128,9 @@ router.get(
     }
 );
 
-
-// ============================================================================
-// CREATE SETTING
-// ============================================================================
+/* ============================================================================
+   CREATE SETTING / SAVE BUSINESS CONFIGURATION
+============================================================================ */
 
 router.post(
     "/",
@@ -92,11 +144,15 @@ router.post(
         try {
             const body = req.body ?? {};
 
-            // The existing frontend uses POST /api/Settings with one
-            // SETTINGS_CONFIG object. Support that format directly so the
-            // current UI can save without requiring a frontend rebuild.
+            /*
+             * The frontend can send the complete business configuration
+             * through POST /settings.
+             */
             if (body.BusinessName !== undefined) {
-                const parsed = businessConfigSchema.parse({ body });
+                const parsed = businessConfigSchema.parse({
+                    body,
+                });
+
                 const config = parsed.body;
 
                 const values: Record<string, string> = {
@@ -107,40 +163,61 @@ router.post(
                     Currency: config.Currency,
                     CurrencySymbol: config.CurrencySymbol,
                     TaxRate: String(config.TaxRate),
-                    LowStockThreshold: String(config.LowStockThreshold),
-                    InvoicePrefix: config.InvoicePrefix ?? "INV-",
-                    InvoiceFooterNote: config.InvoiceFooterNote ?? "",
+                    LowStockThreshold: String(
+                        config.LowStockThreshold
+                    ),
+                    InvoicePrefix:
+                        config.InvoicePrefix ?? "INV-",
+                    InvoiceFooterNote:
+                        config.InvoiceFooterNote ?? "",
                 };
 
-                const updated = await prisma.$transaction(async (tx) => {
-                    const records = [];
+                const updated =
+                    await prisma.$transaction(
+                        async (tx) => {
+                            const records = [];
 
-                    for (const [settingName, settingValue] of Object.entries(values)) {
-                        records.push(
-                            await tx.setting.upsert({
-                                where: { settingName },
-                                create: {
-                                    settingId: generateId("SET"),
+                            for (
+                                const [
                                     settingName,
                                     settingValue,
-                                },
-                                update: {
-                                    settingValue,
-                                },
-                            })
-                        );
-                    }
+                                ] of Object.entries(values)
+                            ) {
+                                records.push(
+                                    await tx.setting.upsert({
+                                        where: {
+                                            settingName,
+                                        },
 
-                    return records;
-                });
+                                        create: {
+                                            settingId:
+                                                generateId(
+                                                    "SET"
+                                                ),
+                                            settingName,
+                                            settingValue,
+                                        },
+
+                                        update: {
+                                            settingValue,
+                                        },
+                                    })
+                                );
+                            }
+
+                            return records;
+                        }
+                    );
 
                 try {
                     await createAuditLog({
                         userId: req.user?.userId,
                         action: "UPDATE",
                         module: "Settings",
-                        recordId: "SETTINGS_CONFIG",
-                        description: "Business configuration updated.",
+                        recordId:
+                            "SETTINGS_CONFIG",
+                        description:
+                            "Business configuration updated.",
                         ipAddress: req.ip,
                     });
                 } catch (auditError) {
@@ -152,13 +229,18 @@ router.post(
 
                 res.json({
                     success: true,
-                    message: "Business settings updated successfully",
+                    message:
+                        "Business settings updated successfully",
                     data: updated,
                 });
+
                 return;
             }
 
-            // Otherwise preserve the original single-setting API.
+            /*
+             * Otherwise preserve the original
+             * single-setting API.
+             */
             const {
                 settingId,
                 settingName,
@@ -172,8 +254,10 @@ router.post(
             if (!normalizedSettingName) {
                 res.status(400).json({
                     success: false,
-                    message: "Setting name is required",
+                    message:
+                        "Setting name is required",
                 });
+
                 return;
             }
 
@@ -191,6 +275,7 @@ router.post(
                     message:
                         "A setting with this name already exists",
                 });
+
                 return;
             }
 
@@ -200,16 +285,21 @@ router.post(
                         settingId:
                             settingId ||
                             generateId("SET"),
+
                         settingName:
                             normalizedSettingName,
+
                         settingValue:
                             settingValue !== undefined &&
                                 settingValue !== null
                                 ? String(settingValue)
                                 : null,
+
                         description:
                             description
-                                ? String(description).trim()
+                                ? String(
+                                    description
+                                ).trim()
                                 : null,
                     },
                 });
@@ -218,12 +308,17 @@ router.post(
                 await createAuditLog({
                     userId:
                         req.user?.userId,
+
                     action: "CREATE",
+
                     module: "Settings",
+
                     recordId:
                         setting.settingId,
+
                     description:
                         `Setting ${setting.settingName} created.`,
+
                     ipAddress:
                         req.ip,
                 });
@@ -245,14 +340,178 @@ router.post(
                 "[SETTINGS] CREATE/CONFIG ERROR:",
                 error
             );
+
             next(error);
         }
     }
 );
 
-// ============================================================================
-// UPDATE SETTING
-// ============================================================================
+/* ============================================================================
+   UPDATE BUSINESS CONFIGURATION
+============================================================================ */
+
+/*
+ * IMPORTANT:
+ *
+ * This route MUST appear before PUT "/:id".
+ *
+ * Without this route:
+ *
+ * PUT /settings/config
+ *
+ * gets interpreted as:
+ *
+ * PUT /settings/:id
+ *
+ * where id = "config".
+ *
+ * That caused:
+ *
+ * "Setting not found"
+ */
+
+router.put(
+    "/config",
+    authenticate,
+    requirePermission("settings.manage"),
+    async (
+        req: AuthenticatedRequest,
+        res,
+        next
+    ) => {
+        try {
+            const parsed =
+                businessConfigSchema.parse({
+                    body: req.body ?? {},
+                });
+
+            const config = parsed.body;
+
+            const values: Record<string, string> = {
+                BusinessName:
+                    config.BusinessName,
+
+                Address:
+                    config.Address ?? "",
+
+                Phone:
+                    config.Phone ?? "",
+
+                Email:
+                    config.Email,
+
+                Currency:
+                    config.Currency,
+
+                CurrencySymbol:
+                    config.CurrencySymbol,
+
+                TaxRate:
+                    String(config.TaxRate),
+
+                LowStockThreshold:
+                    String(
+                        config.LowStockThreshold
+                    ),
+
+                InvoicePrefix:
+                    config.InvoicePrefix ??
+                    "INV-",
+
+                InvoiceFooterNote:
+                    config.InvoiceFooterNote ??
+                    "",
+            };
+
+            const updated =
+                await prisma.$transaction(
+                    async (tx) => {
+                        const records = [];
+
+                        for (
+                            const [
+                                settingName,
+                                settingValue,
+                            ] of Object.entries(values)
+                        ) {
+                            records.push(
+                                await tx.setting.upsert({
+                                    where: {
+                                        settingName,
+                                    },
+
+                                    create: {
+                                        settingId:
+                                            generateId(
+                                                "SET"
+                                            ),
+
+                                        settingName,
+
+                                        settingValue,
+                                    },
+
+                                    update: {
+                                        settingValue,
+                                    },
+                                })
+                            );
+                        }
+
+                        return records;
+                    }
+                );
+
+            /*
+             * Audit log
+             */
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId,
+
+                    action: "UPDATE",
+
+                    module: "Settings",
+
+                    recordId:
+                        "SETTINGS_CONFIG",
+
+                    description:
+                        "Business configuration updated.",
+
+                    ipAddress:
+                        req.ip,
+                });
+            } catch (auditError) {
+                console.error(
+                    "Failed to create settings audit log:",
+                    auditError
+                );
+            }
+
+            res.json({
+                success: true,
+
+                message:
+                    "Business settings updated successfully",
+
+                data: updated,
+            });
+        } catch (error) {
+            console.error(
+                "[SETTINGS] BUSINESS CONFIG UPDATE ERROR:",
+                error
+            );
+
+            next(error);
+        }
+    }
+);
+
+/* ============================================================================
+   UPDATE INDIVIDUAL SETTING
+============================================================================ */
 
 router.put(
     "/:id",
@@ -264,10 +523,9 @@ router.put(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing setting
-            // --------------------------------------------------------------
-
+            /*
+             * Find existing setting
+             */
             const existing =
                 await prisma.setting.findUnique({
                     where: {
@@ -292,19 +550,20 @@ router.put(
                 description,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Build update data
-            // --------------------------------------------------------------
-
+            /*
+             * Build update data
+             */
             const data: {
                 settingName?: string;
                 settingValue?: string | null;
                 description?: string | null;
             } = {};
 
+            /*
+             * Update setting name
+             */
             if (
-                settingName !==
-                undefined
+                settingName !== undefined
             ) {
                 const normalizedName =
                     String(
@@ -321,10 +580,9 @@ router.put(
                     return;
                 }
 
-                // ----------------------------------------------------------
-                // Check duplicate name
-                // ----------------------------------------------------------
-
+                /*
+                 * Check duplicate name
+                 */
                 const duplicate =
                     await prisma.setting.findFirst({
                         where: {
@@ -352,9 +610,11 @@ router.put(
                     normalizedName;
             }
 
+            /*
+             * Update setting value
+             */
             if (
-                settingValue !==
-                undefined
+                settingValue !== undefined
             ) {
                 data.settingValue =
                     settingValue === null
@@ -364,23 +624,23 @@ router.put(
                         );
             }
 
+            /*
+             * Update description
+             */
             if (
-                description !==
-                undefined
+                description !== undefined
             ) {
                 data.description =
                     description === null
                         ? null
                         : String(
                             description
-                        ).trim() ||
-                        null;
+                        ).trim() || null;
             }
 
-            // --------------------------------------------------------------
-            // Update setting
-            // --------------------------------------------------------------
-
+            /*
+             * Update database
+             */
             const setting =
                 await prisma.setting.update({
                     where: {
@@ -391,10 +651,9 @@ router.put(
                     data,
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /*
+             * Audit trail
+             */
             try {
                 const changes: string[] =
                     [];
@@ -404,7 +663,7 @@ router.put(
                     undefined
                 ) {
                     changes.push(
-                        `name (${existing.settingName} → ${setting.settingName})`
+                        `name (${existing.settingName} -> ${setting.settingName})`
                     );
                 }
 
@@ -438,7 +697,12 @@ router.put(
                         setting.settingId,
 
                     description:
-                        `Setting ${setting.settingName} updated. Changed: ${changes.length > 0 ? changes.join(", ") : "No tracked fields"}.`,
+                        `Setting ${setting.settingName} updated. Changed: ${changes.length > 0
+                            ? changes.join(
+                                ", "
+                            )
+                            : "No tracked fields"
+                        }.`,
 
                     ipAddress:
                         req.ip,
@@ -452,8 +716,10 @@ router.put(
 
             res.json({
                 success: true,
+
                 message:
                     "Setting updated successfully",
+
                 data: setting,
             });
         } catch (error) {
@@ -467,9 +733,8 @@ router.put(
     }
 );
 
-
-// ============================================================================
-// EXPORT ROUTER
-// ============================================================================
+/* ============================================================================
+   EXPORT ROUTER
+============================================================================ */
 
 export default router;

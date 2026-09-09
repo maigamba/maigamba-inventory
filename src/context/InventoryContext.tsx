@@ -183,10 +183,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Safe client-side auth restore
+  // Authentication persistence
+  // Remember Me ON  -> localStorage (persistent across browser restarts)
+  // Remember Me OFF -> sessionStorage (current browser session only)
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem('maigamba_user');
+      const savedUser =
+        sessionStorage.getItem('maigamba_user_session') ??
+        localStorage.getItem('maigamba_user');
+
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
         if (parsed && parsed.Email) {
@@ -194,32 +199,62 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
     } catch {
-      // ignore
+      try {
+        sessionStorage.removeItem('maigamba_user_session');
+        localStorage.removeItem('maigamba_user');
+      } catch {
+        // Ignore storage cleanup errors.
+      }
     } finally {
       setAuthChecked(true);
     }
   }, []);
 
-  const login = useCallback((user: UserProfile, remember: boolean) => {
-    setCurrentUser(user);
-    if (remember) {
+  const login = useCallback(
+    (user: UserProfile, remember: boolean) => {
+      setCurrentUser(user);
+
       try {
-        localStorage.setItem('maigamba_user', JSON.stringify(user));
-      } catch {
-        // ignore
+        // Remove any previous remembered/current session first.
+        localStorage.removeItem('maigamba_user');
+        sessionStorage.removeItem('maigamba_user_session');
+
+        if (remember) {
+          localStorage.setItem('maigamba_user', JSON.stringify(user));
+        } else {
+          sessionStorage.setItem(
+            'maigamba_user_session',
+            JSON.stringify(user)
+          );
+        }
+      } catch (error) {
+        console.warn('Unable to persist authentication session:', error);
       }
-    }
-    addToast('success', `Signed in as ${user.FullName} (${user.Role})`, 'Welcome Back');
-  }, [addToast]);
+
+      addToast(
+        'success',
+        `Signed in as ${user.FullName} (${user.Role})`,
+        'Welcome Back'
+      );
+    },
+    [addToast]
+  );
 
   const logout = useCallback(() => {
     setCurrentUser(null);
+
     try {
       localStorage.removeItem('maigamba_user');
+      sessionStorage.removeItem('maigamba_user_session');
     } catch {
-      // ignore
+      // Ignore storage cleanup errors.
     }
-    addToast('info', 'You have been signed out successfully.', 'Session Ended');
+
+    addToast(
+      'info',
+      'You have been signed out successfully.',
+      'Session Ended'
+    );
   }, [addToast]);
 
   // Entity Refresh Handlers

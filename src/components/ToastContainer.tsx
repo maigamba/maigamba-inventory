@@ -1,6 +1,12 @@
 import React from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { CheckCircle2, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
+import {
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  Info,
+  X,
+} from 'lucide-react';
 
 export const ToastContainer: React.FC = () => {
   const { toasts, removeToast } = useInventory();
@@ -8,7 +14,10 @@ export const ToastContainer: React.FC = () => {
   if (toasts.length === 0) return null;
 
   return (
-    <div id="toast-container" className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-md w-full pointer-events-none px-4 sm:px-0">
+    <div
+      id="toast-container"
+      className="fixed bottom-5 right-5 z-50 flex w-full max-w-md flex-col gap-2.5 px-4 pointer-events-none sm:px-0"
+    >
       {toasts.map((toast) => {
         const isSuccess = toast.type === 'success';
         const isError = toast.type === 'error';
@@ -18,32 +27,49 @@ export const ToastContainer: React.FC = () => {
           <div
             key={toast.id}
             id={`toast-${toast.id}`}
-            className={`pointer-events-auto flex items-start gap-3 p-3.5 rounded-sm shadow-xl border transition-all duration-300 animate-in fade-in slide-in-from-bottom-3 ${
-              isSuccess
-                ? 'bg-[#1a1a1a] border-emerald-500/50 text-[#fcfaf7]'
-                : isError
-                ? 'bg-[#1a1a1a] border-rose-500/50 text-[#fcfaf7]'
+            className={`pointer-events-auto flex items-start gap-3 rounded-2xl border p-3.5 shadow-xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-3 ${isSuccess
+              ? 'border-emerald-500/50 bg-slate-950 text-white'
+              : isError
+                ? 'border-rose-500/50 bg-slate-950 text-white'
                 : isWarning
-                ? 'bg-[#1a1a1a] border-amber-500/50 text-[#fcfaf7]'
-                : 'bg-[#1a1a1a] border-black/20 text-[#fcfaf7]'
-            }`}
+                  ? 'border-amber-500/50 bg-slate-950 text-white'
+                  : 'border-slate-700 bg-slate-950 text-white'
+              }`}
           >
-            <div className="shrink-0 mt-0.5">
-              {isSuccess && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-              {isError && <AlertCircle className="w-4 h-4 text-rose-400" />}
-              {isWarning && <AlertTriangle className="w-4 h-4 text-amber-400" />}
-              {!isSuccess && !isError && !isWarning && <Info className="w-4 h-4 text-sky-400" />}
+            <div className="mt-0.5 shrink-0">
+              {isSuccess && (
+                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              )}
+              {isError && (
+                <AlertCircle className="h-4 w-4 text-rose-400" />
+              )}
+              {isWarning && (
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+              )}
+              {!isSuccess && !isError && !isWarning && (
+                <Info className="h-4 w-4 text-sky-400" />
+              )}
             </div>
-            <div className="flex-1 min-w-0">
-              {toast.title && <h4 className="text-[10px] uppercase tracking-wider font-semibold font-serif text-white">{toast.title}</h4>}
-              <p className="text-xs text-white/80 leading-relaxed break-words font-light">{toast.message}</p>
+
+            <div className="min-w-0 flex-1">
+              {toast.title && (
+                <h4 className="font-serif text-[10px] font-semibold uppercase tracking-wider text-white">
+                  {toast.title}
+                </h4>
+              )}
+
+              <p className="break-words text-xs font-light leading-relaxed text-white/80">
+                {toast.message}
+              </p>
             </div>
+
             <button
+              type="button"
               onClick={() => removeToast(toast.id)}
-              className="shrink-0 p-1 rounded-sm hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+              className="shrink-0 rounded-lg p-1 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
               aria-label="Dismiss notification"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="h-3.5 w-3.5" />
             </button>
           </div>
         );
@@ -51,3 +77,5 @@ export const ToastContainer: React.FC = () => {
     </div>
   );
 };
+
+export default ToastContainer;
