@@ -1,9 +1,14 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Customer from "../models/Customer";
+import Sale from "../models/Sale";
+import Return from "../models/Return";
+import { generateMongoId } from "../utils/mongoId";
+import { createAuditLog } from "../services/audit.service";
+
 import {
     authenticate,
     requirePermission,
+    AuthenticatedRequest,
 } from "../middleware/auth";
 
 const router = Router();
@@ -12,6 +17,8 @@ const router = Router();
 |--------------------------------------------------------------------------
 | CUSTOMERS ROUTES
 |--------------------------------------------------------------------------
+|
+| MongoDB / Mongoose version
 |
 | Permissions:
 |
@@ -22,10 +29,38 @@ const router = Router();
 |
 */
 
+/**
+ * Remove MongoDB internal fields before returning documents.
+ */
+function cleanDocument(document: any) {
+    if (!document) {
+        return document;
+    }
 
-// ============================================================================
-// GET ALL CUSTOMERS
-// ============================================================================
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
+ * Escape a value before using it in a MongoDB regex.
+ */
+function escapeRegex(value: string) {
+    return value.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+    );
+}
+
+/**
+ * ============================================================================
+ * GET ALL CUSTOMERS
+ * ============================================================================
+ */
 
 router.get(
     "/",
@@ -37,55 +72,46 @@ router.get(
                 req.query.search ?? ""
             ).trim();
 
-            const customers =
-                await prisma.customer.findMany({
-                    where: search
-                        ? {
-                            OR: [
-                                {
-                                    customerName: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                                {
-                                    customerId: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                                {
-                                    phone: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                                {
-                                    email: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                            ],
-                        }
-                        : undefined,
+            let query: any = {};
 
-                    orderBy: {
-                        createdAt: "desc",
-                    },
-                });
+            if (search) {
+                const regex = new RegExp(
+                    escapeRegex(search),
+                    "i"
+                );
+
+                query = {
+                    $or: [
+                        {
+                            customerName:
+                                regex,
+                        },
+                        {
+                            customerId:
+                                regex,
+                        },
+                        {
+                            phone: regex,
+                        },
+                        {
+                            email: regex,
+                        },
+                    ],
+                };
+            }
+
+            const customers =
+                await Customer.find(query)
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
 
             res.json({
                 success: true,
-                data: customers,
+                data: customers.map(
+                    cleanDocument
+                ),
             });
         } catch (error) {
             next(error);
@@ -93,10 +119,11 @@ router.get(
     }
 );
 
-
-// ============================================================================
-// GET SINGLE CUSTOMER
-// ============================================================================
+/**
+ * ============================================================================
+ * GET SINGLE CUSTOMER
+ * ============================================================================
+ */
 
 router.get(
     "/:id",
@@ -105,39 +132,72 @@ router.get(
     async (req, res, next) => {
         try {
             const customer =
-                await prisma.customer.findUnique({
-                    where: {
-                        customerId:
-                            req.params.id,
-                    },
-
-                    include: {
-                        sales: {
-                            orderBy: {
-                                saleDate: "desc",
-                            },
-                        },
-
-                        returns: {
-                            orderBy: {
-                                returnDate: "desc",
-                            },
-                        },
-                    },
-                });
+                await Customer.findOne({
+                    customerId:
+                        req.params.id,
+                }).lean();
 
             if (!customer) {
                 res.status(404).json({
                     success: false,
-                    message: "Customer not found",
+                    message:
+                        "Customer not found",
                 });
 
                 return;
             }
 
+            /**
+             * Resolve the customer's sales
+             * and returns from MongoDB.
+             */
+            const [
+                sales,
+                returns,
+            ] = await Promise.all([
+                Sale.find({
+                    customerId:
+                        customer.customerId,
+                })
+                    .sort({
+                        saleDate: -1,
+                    })
+                    .lean(),
+
+                /**
+                 * The original Prisma Customer
+                 * relation did not explicitly show
+                 * the customerId field on Return.
+                 *
+                 * Therefore we first try the normal
+                 * customerId relationship if present.
+                 */
+                Return.find({
+                    customerId:
+                        customer.customerId,
+                })
+                    .sort({
+                        returnDate: -1,
+                    })
+                    .lean(),
+            ]);
+
             res.json({
                 success: true,
-                data: customer,
+                data: {
+                    ...cleanDocument(
+                        customer
+                    ),
+
+                    sales: sales.map(
+                        cleanDocument
+                    ),
+
+                    returns:
+                        returns.map(
+                            cleanDocument
+                        ),
+                },
             });
         } catch (error) {
             next(error);
@@ -145,16 +205,21 @@ router.get(
     }
 );
 
-
-// ============================================================================
-// CREATE CUSTOMER
-// ============================================================================
+/**
+ * ============================================================================
+ * CREATE CUSTOMER
+ * ============================================================================
+ */
 
 router.post(
     "/",
     authenticate,
     requirePermission("customers.create"),
-    async (req, res, next) => {
+    async (
+        req: AuthenticatedRequest,
+        res,
+        next
+    ) => {
         try {
             const {
                 customerName,
@@ -166,11 +231,13 @@ router.post(
                 status = "Active",
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Validate required fields
-            // --------------------------------------------------------------
-
-            if (!customerName) {
+            /**
+             * Validate required fields.
+             */
+            if (
+                !customerName ||
+                !String(customerName).trim()
+            ) {
                 res.status(400).json({
                     success: false,
                     message:
@@ -180,10 +247,9 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Validate account balance
-            // --------------------------------------------------------------
-
+            /**
+             * Validate account balance.
+             */
             const numericAccountBalance =
                 Number(accountBalance);
 
@@ -201,38 +267,102 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Create customer
-            // --------------------------------------------------------------
-
+            /**
+             * Create customer.
+             */
             const customer =
-                await prisma.customer.create({
-                    data: {
-                        customerId:
-                            generateId("CUS"),
+                await Customer.create({
+                    customerId:
+                        generateMongoId(
+                            "CUS"
+                        ),
 
-                        customerName,
+                    customerName:
+                        String(
+                            customerName
+                        ).trim(),
 
-                        phone,
+                    phone:
+                        phone !== undefined
+                            ? String(
+                                phone
+                            ).trim()
+                            : undefined,
 
-                        email,
+                    email:
+                        email !== undefined
+                            ? String(
+                                email
+                            )
+                                .trim()
+                                .toLowerCase()
+                            : undefined,
 
-                        address,
+                    address:
+                        address !==
+                            undefined
+                            ? String(
+                                address
+                            ).trim()
+                            : undefined,
 
-                        customerType,
+                    customerType:
+                        customerType !==
+                            undefined
+                            ? String(
+                                customerType
+                            ).trim()
+                            : undefined,
 
-                        accountBalance:
-                            numericAccountBalance,
+                    accountBalance:
+                        numericAccountBalance,
 
-                        status,
-                    },
+                    status:
+                        String(
+                            status || "Active"
+                        ).trim(),
                 });
+
+            /**
+             * Audit trail.
+             */
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId,
+
+                    action:
+                        "CREATE",
+
+                    module:
+                        "Customers",
+
+                    recordId:
+                        customer.customerId,
+
+                    description:
+                        `Customer ${customer.customerName} created. Phone: ${customer.phone || "N/A"}, email: ${customer.email || "N/A"}, account balance: ${customer.accountBalance}.`,
+
+                    ipAddress:
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
+                });
+            } catch (auditError) {
+                console.error(
+                    "Failed to create customer audit log:",
+                    auditError
+                );
+            }
 
             res.status(201).json({
                 success: true,
                 message:
                     "Customer created successfully",
-                data: customer,
+                data: cleanDocument(
+                    customer.toObject()
+                ),
             });
         } catch (error) {
             next(error);
@@ -240,28 +370,30 @@ router.post(
     }
 );
 
-
-// ============================================================================
-// UPDATE CUSTOMER
-// ============================================================================
+/**
+ * ============================================================================
+ * UPDATE CUSTOMER
+ * ============================================================================
+ */
 
 router.put(
     "/:id",
     authenticate,
     requirePermission("customers.update"),
-    async (req, res, next) => {
+    async (
+        req: AuthenticatedRequest,
+        res,
+        next
+    ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing customer
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing customer.
+             */
             const existing =
-                await prisma.customer.findUnique({
-                    where: {
-                        customerId:
-                            req.params.id,
-                    },
-                });
+                await Customer.findOne({
+                    customerId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -283,40 +415,76 @@ router.put(
                 status,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Build update data
-            // --------------------------------------------------------------
+            /**
+             * Build update data.
+             */
+            const updateData: Record<
+                string,
+                unknown
+            > = {};
 
-            const updateData: any = {
-                ...(customerName !== undefined && {
-                    customerName,
-                }),
+            if (
+                customerName !==
+                undefined
+            ) {
+                if (
+                    !String(
+                        customerName
+                    ).trim()
+                ) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            "Customer name is required",
+                    });
 
-                ...(phone !== undefined && {
-                    phone,
-                }),
+                    return;
+                }
 
-                ...(email !== undefined && {
-                    email,
-                }),
+                updateData.customerName =
+                    String(
+                        customerName
+                    ).trim();
+            }
 
-                ...(address !== undefined && {
-                    address,
-                }),
+            if (phone !== undefined) {
+                updateData.phone =
+                    String(phone).trim();
+            }
 
-                ...(customerType !== undefined && {
-                    customerType,
-                }),
+            if (email !== undefined) {
+                updateData.email =
+                    String(email)
+                        .trim()
+                        .toLowerCase();
+            }
 
-                ...(status !== undefined && {
-                    status,
-                }),
-            };
+            if (address !== undefined) {
+                updateData.address =
+                    String(
+                        address
+                    ).trim();
+            }
 
-            // --------------------------------------------------------------
-            // Validate account balance when supplied
-            // --------------------------------------------------------------
+            if (
+                customerType !==
+                undefined
+            ) {
+                updateData.customerType =
+                    String(
+                        customerType
+                    ).trim();
+            }
 
+            if (status !== undefined) {
+                updateData.status =
+                    String(status).trim();
+            }
+
+            /**
+             * Validate account balance
+             * when it is supplied.
+             */
             if (
                 accountBalance !==
                 undefined
@@ -344,25 +512,74 @@ router.put(
                     numericAccountBalance;
             }
 
-            // --------------------------------------------------------------
-            // Update customer
-            // --------------------------------------------------------------
-
+            /**
+             * Update customer.
+             */
             const customer =
-                await prisma.customer.update({
-                    where: {
+                await Customer.findOneAndUpdate(
+                    {
                         customerId:
                             req.params.id,
                     },
+                    {
+                        $set: updateData,
+                    },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
 
-                    data: updateData,
+            if (!customer) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Customer not found",
                 });
+
+                return;
+            }
+
+            /**
+             * Audit trail.
+             */
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId,
+
+                    action:
+                        "UPDATE",
+
+                    module:
+                        "Customers",
+
+                    recordId:
+                        customer.customerId,
+
+                    description:
+                        `Customer ${customer.customerName} updated. Status: ${customer.status}, account balance: ${customer.accountBalance}.`,
+
+                    ipAddress:
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
+                });
+            } catch (auditError) {
+                console.error(
+                    "Failed to create customer update audit log:",
+                    auditError
+                );
+            }
 
             res.json({
                 success: true,
                 message:
                     "Customer updated successfully",
-                data: customer,
+                data: cleanDocument(
+                    customer
+                ),
             });
         } catch (error) {
             next(error);
@@ -370,33 +587,33 @@ router.put(
     }
 );
 
-
-// ============================================================================
-// ARCHIVE CUSTOMER
-// ============================================================================
-//
-// Archive is treated as an update because it changes the customer's status.
-// Requires:
-// customers.update
-//
+/**
+ * ============================================================================
+ * ARCHIVE CUSTOMER
+ * ============================================================================
+ *
+ * Archive is treated as an update because
+ * it changes the customer's status.
+ */
 
 router.patch(
     "/:id/archive",
     authenticate,
     requirePermission("customers.update"),
-    async (req, res, next) => {
+    async (
+        req: AuthenticatedRequest,
+        res,
+        next
+    ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing customer
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing customer.
+             */
             const existing =
-                await prisma.customer.findUnique({
-                    where: {
-                        customerId:
-                            req.params.id,
-                    },
-                });
+                await Customer.findOne({
+                    customerId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -408,27 +625,76 @@ router.patch(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Archive customer
-            // --------------------------------------------------------------
-
+            /**
+             * Archive customer.
+             */
             const customer =
-                await prisma.customer.update({
-                    where: {
+                await Customer.findOneAndUpdate(
+                    {
                         customerId:
                             req.params.id,
                     },
-
-                    data: {
-                        status: "Inactive",
+                    {
+                        $set: {
+                            status: "Inactive",
+                        },
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!customer) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Customer not found",
                 });
+
+                return;
+            }
+
+            /**
+             * Audit trail.
+             */
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId,
+
+                    action:
+                        "ARCHIVE",
+
+                    module:
+                        "Customers",
+
+                    recordId:
+                        customer.customerId,
+
+                    description:
+                        `Customer ${customer.customerName} archived. Previous status: ${existing.status}.`,
+
+                    ipAddress:
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
+                });
+            } catch (auditError) {
+                console.error(
+                    "Failed to create customer archive audit log:",
+                    auditError
+                );
+            }
 
             res.json({
                 success: true,
                 message:
                     "Customer archived successfully",
-                data: customer,
+                data: cleanDocument(
+                    customer
+                ),
             });
         } catch (error) {
             next(error);
@@ -436,28 +702,30 @@ router.patch(
     }
 );
 
-
-// ============================================================================
-// DELETE CUSTOMER
-// ============================================================================
+/**
+ * ============================================================================
+ * DELETE CUSTOMER
+ * ============================================================================
+ */
 
 router.delete(
     "/:id",
     authenticate,
     requirePermission("customers.delete"),
-    async (req, res, next) => {
+    async (
+        req: AuthenticatedRequest,
+        res,
+        next
+    ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing customer
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing customer.
+             */
             const existing =
-                await prisma.customer.findUnique({
-                    where: {
-                        customerId:
-                            req.params.id,
-                    },
-                });
+                await Customer.findOne({
+                    customerId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -469,16 +737,46 @@ router.delete(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Delete customer
-            // --------------------------------------------------------------
-
-            await prisma.customer.delete({
-                where: {
-                    customerId:
-                        req.params.id,
-                },
+            /**
+             * Delete customer.
+             */
+            await Customer.deleteOne({
+                customerId:
+                    req.params.id,
             });
+
+            /**
+             * Audit trail.
+             */
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId,
+
+                    action:
+                        "DELETE",
+
+                    module:
+                        "Customers",
+
+                    recordId:
+                        existing.customerId,
+
+                    description:
+                        `Customer ${existing.customerName} deleted. Phone: ${existing.phone || "N/A"}, email: ${existing.email || "N/A"}.`,
+
+                    ipAddress:
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
+                });
+            } catch (auditError) {
+                console.error(
+                    "Failed to create customer delete audit log:",
+                    auditError
+                );
+            }
 
             res.json({
                 success: true,
@@ -491,9 +789,10 @@ router.delete(
     }
 );
 
-
-// ============================================================================
-// EXPORT ROUTER
-// ============================================================================
+/**
+ * ============================================================================
+ * EXPORT ROUTER
+ * ============================================================================
+ */
 
 export default router;

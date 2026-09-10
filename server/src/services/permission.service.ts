@@ -1,14 +1,29 @@
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Permission from "../models/Permission";
+import User from "../models/User";
+import UserPermission from "../models/UserPermission";
+import { generateMongoId } from "../utils/mongoId";
 
-export const PERMISSIONS = [
-    {
-        code: "dashboard.view",
-        name: "View Dashboard",
-        description: "Access the dashboard",
-        module: "Dashboard",
-    },
+/**
+ * ============================================================
+ * MAIGAMBA INVENTORY - PERMISSION SERVICE
+ * MongoDB / Mongoose version
+ * ============================================================
+ */
 
+export interface PermissionDefinition {
+    code: string;
+    name: string;
+    description: string;
+    module: string;
+}
+
+/**
+ * All system permissions.
+ *
+ * Keep these codes synchronized with the permissions already
+ * used throughout the application's routes.
+ */
+export const PERMISSIONS: PermissionDefinition[] = [
     // Products
     {
         code: "products.view",
@@ -19,13 +34,13 @@ export const PERMISSIONS = [
     {
         code: "products.create",
         name: "Create Products",
-        description: "Add new products",
+        description: "Create new products",
         module: "Products",
     },
     {
         code: "products.update",
         name: "Update Products",
-        description: "Edit products",
+        description: "Update existing products",
         module: "Products",
     },
     {
@@ -45,7 +60,7 @@ export const PERMISSIONS = [
     {
         code: "categories.manage",
         name: "Manage Categories",
-        description: "Create, update and delete categories",
+        description: "Create, update, archive and delete categories",
         module: "Categories",
     },
 
@@ -59,7 +74,7 @@ export const PERMISSIONS = [
     {
         code: "brands.manage",
         name: "Manage Brands",
-        description: "Create, update and delete brands",
+        description: "Create, update, archive and delete brands",
         module: "Brands",
     },
 
@@ -73,13 +88,13 @@ export const PERMISSIONS = [
     {
         code: "suppliers.create",
         name: "Create Suppliers",
-        description: "Add suppliers",
+        description: "Create new suppliers",
         module: "Suppliers",
     },
     {
         code: "suppliers.update",
         name: "Update Suppliers",
-        description: "Edit suppliers",
+        description: "Update suppliers",
         module: "Suppliers",
     },
     {
@@ -99,13 +114,13 @@ export const PERMISSIONS = [
     {
         code: "customers.create",
         name: "Create Customers",
-        description: "Add customers",
+        description: "Create new customers",
         module: "Customers",
     },
     {
         code: "customers.update",
         name: "Update Customers",
-        description: "Edit customers",
+        description: "Update customers",
         module: "Customers",
     },
     {
@@ -125,13 +140,13 @@ export const PERMISSIONS = [
     {
         code: "sales.create",
         name: "Create Sales",
-        description: "Create and complete sales",
+        description: "Create new sales",
         module: "Sales",
     },
     {
         code: "sales.update",
         name: "Update Sales",
-        description: "Edit sales",
+        description: "Update sales",
         module: "Sales",
     },
     {
@@ -145,19 +160,19 @@ export const PERMISSIONS = [
     {
         code: "purchases.view",
         name: "View Purchases",
-        description: "View purchases",
+        description: "View purchases and purchase history",
         module: "Purchases",
     },
     {
         code: "purchases.create",
         name: "Create Purchases",
-        description: "Create purchases",
+        description: "Create new purchases",
         module: "Purchases",
     },
     {
         code: "purchases.update",
         name: "Update Purchases",
-        description: "Edit purchases",
+        description: "Update purchases",
         module: "Purchases",
     },
     {
@@ -171,19 +186,19 @@ export const PERMISSIONS = [
     {
         code: "expenses.view",
         name: "View Expenses",
-        description: "View expenses",
+        description: "View business expenses",
         module: "Expenses",
     },
     {
         code: "expenses.create",
         name: "Create Expenses",
-        description: "Record expenses",
+        description: "Create new expenses",
         module: "Expenses",
     },
     {
         code: "expenses.update",
         name: "Update Expenses",
-        description: "Edit expenses",
+        description: "Update expenses",
         module: "Expenses",
     },
     {
@@ -203,7 +218,7 @@ export const PERMISSIONS = [
     {
         code: "returns.create",
         name: "Create Returns",
-        description: "Process returns",
+        description: "Process product returns",
         module: "Returns",
     },
     {
@@ -217,13 +232,13 @@ export const PERMISSIONS = [
     {
         code: "stock.view",
         name: "View Stock",
-        description: "View stock levels",
+        description: "View stock information",
         module: "Stock",
     },
     {
         code: "stock.adjust",
         name: "Adjust Stock",
-        description: "Make stock adjustments",
+        description: "Adjust product stock quantities",
         module: "Stock",
     },
     {
@@ -237,7 +252,7 @@ export const PERMISSIONS = [
     {
         code: "reports.view",
         name: "View Reports",
-        description: "Access business reports",
+        description: "View business reports and analytics",
         module: "Reports",
     },
 
@@ -251,13 +266,13 @@ export const PERMISSIONS = [
     {
         code: "users.create",
         name: "Create Users",
-        description: "Create system users",
+        description: "Create new system users",
         module: "Users",
     },
     {
         code: "users.update",
         name: "Update Users",
-        description: "Edit system users",
+        description: "Update system users",
         module: "Users",
     },
     {
@@ -269,7 +284,7 @@ export const PERMISSIONS = [
     {
         code: "users.permissions",
         name: "Manage User Permissions",
-        description: "Grant and revoke individual permissions",
+        description: "Grant and revoke user permissions",
         module: "Users",
     },
 
@@ -283,23 +298,24 @@ export const PERMISSIONS = [
     {
         code: "settings.manage",
         name: "Manage Settings",
-        description: "Change system settings",
+        description: "Manage system settings",
         module: "Settings",
     },
 
-    // Audit logs
+    // Audit
     {
         code: "audit.view",
         name: "View Audit Logs",
         description: "View system audit logs",
-        module: "Audit Logs",
+        module: "Audit",
     },
-] as const;
+];
 
+/**
+ * Role-based default permissions.
+ */
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
-    Admin: PERMISSIONS.map(
-        (permission) => permission.code
-    ),
+    Admin: PERMISSIONS.map((permission) => permission.code),
 
     Manager: [
         "dashboard.view",
@@ -343,7 +359,6 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
         "stock.movements",
 
         "reports.view",
-
         "audit.view",
     ],
 
@@ -359,6 +374,9 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
         "sales.view",
         "sales.create",
         "sales.update",
+
+        "returns.view",
+        "returns.create",
     ],
 
     "Inventory Officer": [
@@ -390,597 +408,316 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     ],
 };
 
-
-/*
-|--------------------------------------------------------------------------
-| SEED PERMISSIONS
-|--------------------------------------------------------------------------
-*/
-
+/**
+ * Seed all permissions into MongoDB.
+ *
+ * Existing permissions are updated instead of duplicated.
+ */
 export async function seedPermissions() {
+    let createdOrUpdated = 0;
+
     for (const permission of PERMISSIONS) {
-        await prisma.permission.upsert({
-            where: {
-                code: permission.code,
-            },
-
-            update: {
-                name: permission.name,
-                description:
-                    permission.description,
-                module: permission.module,
-            },
-
-            create: {
-                permissionId:
-                    generateId("PER"),
-
-                code: permission.code,
-
-                name: permission.name,
-
-                description:
-                    permission.description,
-
-                module: permission.module,
-            },
-        });
-    }
-
-    return prisma.permission.count();
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| GET USER PERMISSIONS
-|--------------------------------------------------------------------------
-|
-| Effective permission calculation:
-|
-| 1. Start with role permissions.
-| 2. Load ALL direct user permission records,
-|    including granted=false.
-| 3. A direct "granted=true" overrides the role.
-| 4. A direct "granted=false" removes the role permission.
-|
-*/
-
-export async function getUserPermissions(
-    userId: string
-) {
-    const user =
-        await prisma.user.findUnique({
-            where: {
-                userId,
-            },
-
-            select: {
-                userId: true,
-                role: true,
-                status: true,
-
-                permissions: {
-                    select: {
-                        granted: true,
-
-                        permission: {
-                            select: {
-                                code: true,
-                            },
-                        },
-                    },
+        await Permission.findOneAndUpdate(
+            { code: permission.code },
+            {
+                $set: {
+                    name: permission.name,
+                    description: permission.description,
+                    module: permission.module,
+                },
+                $setOnInsert: {
+                    permissionId: generateMongoId("PER"),
                 },
             },
-        });
-
-    if (!user) {
-        return {
-            role: null,
-            status: null,
-            permissions: [],
-        };
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Start with role permissions
-    |--------------------------------------------------------------------------
-    */
-
-    const effectivePermissions =
-        new Set(
-            ROLE_PERMISSIONS[
-            user.role
-            ] ?? []
+            {
+                upsert: true,
+                returnDocument: "after",
+                setDefaultsOnInsert: true,
+            }
         );
 
-    /*
-    |--------------------------------------------------------------------------
-    | Apply direct user overrides
-    |--------------------------------------------------------------------------
-    */
+        createdOrUpdated++;
+    }
 
-    for (
-        const userPermission of
-        user.permissions
-    ) {
-        const code =
-            userPermission.permission
-                .code;
+    return {
+        count: createdOrUpdated,
+        message: "Permissions seeded successfully.",
+    };
+}
 
-        if (
-            userPermission.granted
-        ) {
-            effectivePermissions.add(
-                code
-            );
+/**
+ * Get the effective permissions for a user.
+ *
+ * Role permissions are applied first.
+ * Direct user permissions can then grant or revoke permissions.
+ */
+export async function getUserPermissions(userId: string) {
+    const normalizedUserId = String(userId || "").trim();
+
+    if (!normalizedUserId) {
+        throw new Error("User ID is required");
+    }
+
+    const user = await User.findOne({
+        userId: normalizedUserId,
+    }).lean();
+
+    if (!user) {
+        throw new Error("User not found");
+    }
+
+    const role = String(user.role || "").trim();
+    const status = String(user.status || "").trim();
+
+    const rolePermissions = new Set<string>(
+        ROLE_PERMISSIONS[role] || []
+    );
+
+    const directPermissions = await UserPermission.find({
+        userId: normalizedUserId,
+    })
+        .populate("permissionId")
+        .lean();
+
+    for (const record of directPermissions) {
+        const permission = await Permission.findOne({
+            permissionId: record.permissionId,
+        }).lean();
+
+        if (!permission) {
+            continue;
+        }
+
+        if (record.granted) {
+            rolePermissions.add(permission.code);
         } else {
-            effectivePermissions.delete(
-                code
-            );
+            rolePermissions.delete(permission.code);
         }
     }
 
     return {
-        role: user.role,
-
-        status: user.status,
-
-        permissions:
-            Array.from(
-                effectivePermissions
-            ),
+        userId: normalizedUserId,
+        role,
+        status,
+        permissions: Array.from(rolePermissions).sort(),
     };
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| CHECK PERMISSION
-|--------------------------------------------------------------------------
-*/
-
+/**
+ * Check whether a user has a specific permission.
+ */
 export async function hasPermission(
     userId: string,
-    permission: string
+    permissionCode: string
 ): Promise<boolean> {
-    const result =
-        await getUserPermissions(
-            userId
-        );
+    const normalizedPermission = String(
+        permissionCode || ""
+    ).trim();
 
-    if (
-        result.status !==
-        "Active"
-    ) {
+    if (!normalizedPermission) {
         return false;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Admin
-    |--------------------------------------------------------------------------
-    |
-    | Admin keeps full system access.
-    |
-    */
+    const result = await getUserPermissions(userId);
 
-    if (
-        result.role === "Admin"
-    ) {
+    if (result.status !== "Active") {
+        return false;
+    }
+
+    if (result.role.toLowerCase() === "admin") {
         return true;
     }
 
-    return result.permissions.includes(
-        permission
-    );
+    return result.permissions.includes(normalizedPermission);
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| GRANT INDIVIDUAL PERMISSION
-|--------------------------------------------------------------------------
-*/
-
+/**
+ * Grant a permission directly to a user.
+ */
 export async function grantUserPermission(
     userId: string,
     permissionCode: string
 ) {
-    const normalizedCode =
-        String(
-            permissionCode
-        ).trim();
+    const normalizedUserId = String(userId || "").trim();
+    const normalizedCode = String(permissionCode || "").trim();
 
-    if (!normalizedCode) {
-        throw new Error(
-            "Permission code is required"
-        );
-    }
-
-    const user =
-        await prisma.user.findUnique({
-            where: {
-                userId,
-            },
-        });
+    const user = await User.findOne({
+        userId: normalizedUserId,
+    }).lean();
 
     if (!user) {
-        throw new Error(
-            "User not found"
-        );
+        throw new Error("User not found");
     }
 
-    const permission =
-        await prisma.permission.findUnique(
-            {
-                where: {
-                    code: normalizedCode,
-                },
-            }
-        );
+    const permission = await Permission.findOne({
+        code: normalizedCode,
+    }).lean();
 
     if (!permission) {
         throw new Error(
-            `Permission not found: ${normalizedCode}`
+            `Permission "${normalizedCode}" does not exist`
         );
     }
 
-    const userPermission =
-        await prisma.userPermission.upsert(
-            {
-                where: {
-                    userId_permissionId: {
-                        userId,
-
-                        permissionId:
-                            permission.permissionId,
-                    },
-                },
-
-                update: {
-                    granted: true,
-                },
-
-                create: {
-                    userPermissionId:
-                        generateId("UPR"),
-
-                    userId,
-
-                    permissionId:
-                        permission.permissionId,
-
-                    granted: true,
-                },
-
-                include: {
-                    permission: true,
-                },
-            }
-        );
-
-    return userPermission;
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| REVOKE INDIVIDUAL PERMISSION
-|--------------------------------------------------------------------------
-*/
-
-export async function revokeUserPermission(
-    userId: string,
-    permissionCode: string
-) {
-    const normalizedCode =
-        String(
-            permissionCode
-        ).trim();
-
-    if (!normalizedCode) {
-        throw new Error(
-            "Permission code is required"
-        );
-    }
-
-    const user =
-        await prisma.user.findUnique({
-            where: {
-                userId,
+    const userPermission = await UserPermission.findOneAndUpdate(
+        {
+            userId: normalizedUserId,
+            permissionId: permission.permissionId,
+        },
+        {
+            $set: {
+                granted: true,
             },
-        });
-
-    if (!user) {
-        throw new Error(
-            "User not found"
-        );
-    }
-
-    const permission =
-        await prisma.permission.findUnique(
-            {
-                where: {
-                    code: normalizedCode,
-                },
-            }
-        );
-
-    if (!permission) {
-        throw new Error(
-            `Permission not found: ${normalizedCode}`
-        );
-    }
-
-    const userPermission =
-        await prisma.userPermission.upsert(
-            {
-                where: {
-                    userId_permissionId: {
-                        userId,
-
-                        permissionId:
-                            permission.permissionId,
-                    },
-                },
-
-                update: {
-                    granted: false,
-                },
-
-                create: {
-                    userPermissionId:
-                        generateId("UPR"),
-
-                    userId,
-
-                    permissionId:
-                        permission.permissionId,
-
-                    granted: false,
-                },
-
-                include: {
-                    permission: true,
-                },
-            }
-        );
+            $setOnInsert: {
+                userPermissionId: generateMongoId("UPR"),
+            },
+        },
+        {
+            upsert: true,
+            returnDocument: "after",
+        }
+    ).lean();
 
     return {
-        revoked: true,
-
-        message:
-            "Permission revoked successfully",
-
+        granted: true,
+        message: "Permission granted successfully",
         userPermission,
     };
 }
 
+/**
+ * Revoke a permission directly from a user.
+ */
+export async function revokeUserPermission(
+    userId: string,
+    permissionCode: string
+) {
+    const normalizedUserId = String(userId || "").trim();
+    const normalizedCode = String(permissionCode || "").trim();
 
-/*
-|--------------------------------------------------------------------------
-| SET USER PERMISSIONS
-|--------------------------------------------------------------------------
-|
-| Replaces all direct user permissions with
-| the supplied list.
-|
-| Important:
-| A permission not included in the list is
-| stored as granted=false when it already has
-| a direct permission record, and new direct
-| records are created as false when needed.
-|
-*/
+    const user = await User.findOne({
+        userId: normalizedUserId,
+    }).lean();
 
+    if (!user) {
+        throw new Error("User not found");
+    }
+
+    const permission = await Permission.findOne({
+        code: normalizedCode,
+    }).lean();
+
+    if (!permission) {
+        throw new Error(
+            `Permission "${normalizedCode}" does not exist`
+        );
+    }
+
+    const userPermission = await UserPermission.findOneAndUpdate(
+        {
+            userId: normalizedUserId,
+            permissionId: permission.permissionId,
+        },
+        {
+            $set: {
+                granted: false,
+            },
+            $setOnInsert: {
+                userPermissionId: generateMongoId("UPR"),
+            },
+        },
+        {
+            upsert: true,
+            returnDocument: "after",
+        }
+    ).lean();
+
+    return {
+        revoked: true,
+        message: "Permission revoked successfully",
+        userPermission,
+    };
+}
+
+/**
+ * Set a user's direct permissions.
+ *
+ * The selected permissions become granted=true.
+ * All other system permissions become granted=false.
+ */
 export async function setUserPermissions(
     userId: string,
     permissionCodes: string[]
 ) {
-    const user =
-        await prisma.user.findUnique({
-            where: {
-                userId,
-            },
-        });
+    const normalizedUserId = String(userId || "").trim();
+
+    const user = await User.findOne({
+        userId: normalizedUserId,
+    }).lean();
 
     if (!user) {
-        throw new Error(
-            "User not found"
-        );
+        throw new Error("User not found");
     }
 
-    const normalizedCodes =
-        Array.from(
-            new Set(
-                permissionCodes
-                    .map((code) =>
-                        String(
-                            code
-                        ).trim()
-                    )
-                    .filter(Boolean)
-            )
-        );
-
-    const permissions =
-        await prisma.permission.findMany(
-            {
-                select: {
-                    permissionId: true,
-                    code: true,
-                },
-            }
-        );
-
-    const permissionByCode =
-        new Map<
-            string,
-            {
-                permissionId: string;
-                code: string;
-            }
-        >();
-
-    for (
-        const permission of
-        permissions
-    ) {
-        permissionByCode.set(
-            permission.code,
-            permission
-        );
-    }
-
-    const invalidCodes =
-        normalizedCodes.filter(
-            (code) =>
-                !permissionByCode.has(
-                    code
-                )
-        );
-
-    if (
-        invalidCodes.length > 0
-    ) {
-        throw new Error(
-            `Unknown permission(s): ${invalidCodes.join(", ")}`
-        );
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Load all current direct records
-    |--------------------------------------------------------------------------
-    */
-
-    const existing =
-        await prisma.userPermission.findMany(
-            {
-                where: {
-                    userId,
-                },
-
-                select: {
-                    userPermissionId:
-                        true,
-
-                    permissionId:
-                        true,
-
-                    granted:
-                        true,
-
-                    permission: {
-                        select: {
-                            code: true,
-                        },
-                    },
-                },
-            }
-        );
-
-    const selectedSet =
+    const normalizedCodes = Array.from(
         new Set(
-            normalizedCodes
+            (Array.isArray(permissionCodes)
+                ? permissionCodes
+                : []
+            )
+                .map((code) => String(code || "").trim())
+                .filter(Boolean)
+        )
+    );
+
+    const permissions = await Permission.find({
+        code: {
+            $in: normalizedCodes,
+        },
+    }).lean();
+
+    const foundCodes = new Set(
+        permissions.map((permission) => permission.code)
+    );
+
+    const unknownCodes = normalizedCodes.filter(
+        (code) => !foundCodes.has(code)
+    );
+
+    if (unknownCodes.length > 0) {
+        throw new Error(
+            `Unknown permission(s): ${unknownCodes.join(", ")}`
+        );
+    }
+
+    const allPermissions = await Permission.find({})
+        .select("permissionId code")
+        .lean();
+
+    for (const permission of allPermissions) {
+        const shouldBeGranted = normalizedCodes.includes(
+            permission.code
         );
 
-    const existingByCode =
-        new Map<
-            string,
+        await UserPermission.findOneAndUpdate(
             {
-                userPermissionId: string;
-                permissionId: string;
-                granted: boolean;
-            }
-        >();
-
-    for (
-        const item of existing
-    ) {
-        existingByCode.set(
-            item.permission.code,
+                userId: normalizedUserId,
+                permissionId: permission.permissionId,
+            },
             {
-                userPermissionId:
-                    item.userPermissionId,
-
-                permissionId:
-                    item.permissionId,
-
-                granted:
-                    item.granted,
+                $set: {
+                    granted: shouldBeGranted,
+                },
+                $setOnInsert: {
+                    userPermissionId: generateMongoId("UPR"),
+                },
+            },
+            {
+                upsert: true,
+                returnDocument: "after",
             }
         );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Apply direct state to every permission
-    |--------------------------------------------------------------------------
-    */
-
-    await prisma.$transaction(
-        async (tx) => {
-            for (
-                const permission of
-                permissions
-            ) {
-                const shouldGrant =
-                    selectedSet.has(
-                        permission.code
-                    );
-
-                const current =
-                    existingByCode.get(
-                        permission.code
-                    );
-
-                if (current) {
-                    if (
-                        current.granted !==
-                        shouldGrant
-                    ) {
-                        await tx.userPermission.update(
-                            {
-                                where: {
-                                    userPermissionId:
-                                        current.userPermissionId,
-                                },
-
-                                data: {
-                                    granted:
-                                        shouldGrant,
-                                },
-                            }
-                        );
-                    }
-                } else {
-                    await tx.userPermission.create(
-                        {
-                            data: {
-                                userPermissionId:
-                                    generateId(
-                                        "UPR"
-                                    ),
-
-                                userId,
-
-                                permissionId:
-                                    permission.permissionId,
-
-                                granted:
-                                    shouldGrant,
-                            },
-                        }
-                    );
-                }
-            }
-        }
-    );
-
-    return getUserPermissions(
-        userId
-    );
+    return getUserPermissions(normalizedUserId);
 }

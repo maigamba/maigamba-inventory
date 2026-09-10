@@ -1,6 +1,10 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Product from "../models/Product";
+import Category from "../models/Category";
+import Brand from "../models/Brand";
+import Supplier from "../models/Supplier";
+import StockMovement from "../models/StockMovement";
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
 
 import {
@@ -25,6 +29,8 @@ const router = Router();
 | PRODUCTS ROUTES
 |--------------------------------------------------------------------------
 |
+| MongoDB / Mongoose version
+|
 | Permissions:
 |
 | products.view
@@ -34,10 +40,75 @@ const router = Router();
 |
 */
 
+/**
+ * Attach category, brand and supplier information to a product.
+ *
+ * Prisma previously handled these relational includes automatically.
+ * MongoDB stores the IDs directly, so we resolve the related documents
+ * here while keeping the response shape familiar to the frontend.
+ */
+async function enrichProduct(product: any) {
+    if (!product) {
+        return null;
+    }
 
-// ============================================================================
-// GET ALL PRODUCTS
-// ============================================================================
+    const [
+        category,
+        brand,
+        supplier,
+    ] = await Promise.all([
+        product.categoryId
+            ? Category.findOne({
+                categoryId: product.categoryId,
+            }).lean()
+            : null,
+
+        product.brandId
+            ? Brand.findOne({
+                brandId: product.brandId,
+            }).lean()
+            : null,
+
+        product.supplierId
+            ? Supplier.findOne({
+                supplierId: product.supplierId,
+            }).lean()
+            : null,
+    ]);
+
+    return {
+        ...product,
+        category,
+        brand,
+        supplier,
+    };
+}
+
+/**
+ * Convert a MongoDB document into a clean JSON object.
+ *
+ * The frontend should receive the application's productId rather
+ * than depending on MongoDB's internal _id.
+ */
+function cleanProduct(product: any) {
+    if (!product) {
+        return product;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = product;
+
+    return data;
+}
+
+/**
+ * ============================================================================
+ * GET ALL PRODUCTS
+ * ============================================================================
+ */
 
 router.get(
     "/",
@@ -50,53 +121,59 @@ router.get(
                 req.query.search ?? ""
             ).trim();
 
+            let query: any = {};
+
+            if (search) {
+                const regex = new RegExp(
+                    search.replace(
+                        /[.*+?^${}()|[\]\\]/g,
+                        "\\$&"
+                    ),
+                    "i"
+                );
+
+                query = {
+                    $or: [
+                        {
+                            productName: regex,
+                        },
+                        {
+                            sku: regex,
+                        },
+                        {
+                            productId: regex,
+                        },
+                        {
+                            model: regex,
+                        },
+                    ],
+                };
+            }
+
             const products =
-                await prisma.product.findMany({
-                    where: search
-                        ? {
-                              OR: [
-                                  {
-                                      productName: {
-                                          contains: search,
-                                          mode: "insensitive",
-                                      },
-                                  },
-                                  {
-                                      sku: {
-                                          contains: search,
-                                          mode: "insensitive",
-                                      },
-                                  },
-                                  {
-                                      productId: {
-                                          contains: search,
-                                          mode: "insensitive",
-                                      },
-                                  },
-                                  {
-                                      model: {
-                                          contains: search,
-                                          mode: "insensitive",
-                                      },
-                                  },
-                              ],
-                          }
-                        : undefined,
+                await Product.find(query)
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
 
-                    include: {
-                        category: true,
-                        brand: true,
-                        supplier: true,
-                    },
+            const enrichedProducts =
+                await Promise.all(
+                    products.map(async (product) => {
+                        const enriched =
+                            await enrichProduct(
+                                product
+                            );
 
-                    orderBy: {
-                        createdAt: "desc",
-                    },
-                });
+                        return cleanProduct(
+                            enriched
+                        );
+                    })
+                );
 
             res.json({
                 success: true,
-                data: products,
+                data: enrichedProducts,
             });
         } catch (error) {
             next(error);
@@ -104,10 +181,11 @@ router.get(
     }
 );
 
-
-// ============================================================================
-// GET SINGLE PRODUCT
-// ============================================================================
+/**
+ * ============================================================================
+ * GET SINGLE PRODUCT
+ * ============================================================================
+ */
 
 router.get(
     "/:id",
@@ -117,23 +195,9 @@ router.get(
     async (req, res, next) => {
         try {
             const product =
-                await prisma.product.findUnique({
-                    where: {
-                        productId: req.params.id,
-                    },
-
-                    include: {
-                        category: true,
-                        brand: true,
-                        supplier: true,
-
-                        stockMovements: {
-                            orderBy: {
-                                movementDate: "desc",
-                            },
-                        },
-                    },
-                });
+                await Product.findOne({
+                    productId: req.params.id,
+                }).lean();
 
             if (!product) {
                 res.status(404).json({
@@ -144,9 +208,35 @@ router.get(
                 return;
             }
 
+            const [
+                enrichedProduct,
+                stockMovements,
+            ] = await Promise.all([
+                enrichProduct(product),
+
+                StockMovement.find({
+                    productId:
+                        product.productId,
+                })
+                    .sort({
+                        movementDate: -1,
+                    })
+                    .lean(),
+            ]);
+
+            const responseProduct = {
+                ...enrichedProduct,
+                stockMovements:
+                    stockMovements.map(
+                        cleanProduct
+                    ),
+            };
+
             res.json({
                 success: true,
-                data: product,
+                data: cleanProduct(
+                    responseProduct
+                ),
             });
         } catch (error) {
             next(error);
@@ -154,10 +244,11 @@ router.get(
     }
 );
 
-
-// ============================================================================
-// CREATE PRODUCT
-// ============================================================================
+/**
+ * ============================================================================
+ * CREATE PRODUCT
+ * ============================================================================
+ */
 
 router.post(
     "/",
@@ -187,16 +278,13 @@ router.post(
                 status,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Duplicate SKU check
-            // --------------------------------------------------------------
-
+            /**
+             * Duplicate SKU check
+             */
             const existingSku =
-                await prisma.product.findUnique({
-                    where: {
-                        sku,
-                    },
-                });
+                await Product.findOne({
+                    sku,
+                }).lean();
 
             if (existingSku) {
                 res.status(409).json({
@@ -208,56 +296,56 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Create product
-            // --------------------------------------------------------------
-
+            /**
+             * Create product
+             */
             const product =
-                await prisma.product.create({
-                    data: {
-                        productId:
-                            generateId("PRD"),
+                await Product.create({
+                    productId:
+                        generateMongoId("PRD"),
 
-                        sku,
+                    sku,
 
-                        productName,
+                    productName,
 
-                        categoryId,
+                    categoryId,
 
-                        brandId,
+                    brandId,
 
-                        model,
+                    model,
 
-                        serialNumber,
+                    serialNumber,
 
-                        description,
+                    description,
 
-                        quantity,
+                    quantity,
 
-                        reorderLevel,
+                    reorderLevel,
 
-                        costPrice,
+                    costPrice:
+                        Number(costPrice),
 
-                        sellingPrice,
+                    sellingPrice:
+                        Number(sellingPrice),
 
-                        supplierId,
+                    supplierId,
 
-                        location,
+                    location,
 
-                        status,
-                    },
-
-                    include: {
-                        category: true,
-                        brand: true,
-                        supplier: true,
-                    },
+                    status,
                 });
 
-            // --------------------------------------------------------------
-            // Audit log
-            // --------------------------------------------------------------
+            /**
+             * Resolve related documents.
+             */
+            const enrichedProduct =
+                await enrichProduct(
+                    product.toObject()
+                );
 
+            /**
+             * Audit log
+             */
             try {
                 await createAuditLog({
                     userId:
@@ -277,7 +365,8 @@ router.post(
 
                     ipAddress:
                         req.ip ||
-                        req.socket.remoteAddress ||
+                        req.socket
+                            .remoteAddress ||
                         undefined,
                 });
             } catch (auditError) {
@@ -291,7 +380,9 @@ router.post(
                 success: true,
                 message:
                     "Product created successfully",
-                data: product,
+                data: cleanProduct(
+                    enrichedProduct
+                ),
             });
         } catch (error) {
             next(error);
@@ -299,10 +390,11 @@ router.post(
     }
 );
 
-
-// ============================================================================
-// UPDATE PRODUCT
-// ============================================================================
+/**
+ * ============================================================================
+ * UPDATE PRODUCT
+ * ============================================================================
+ */
 
 router.put(
     "/:id",
@@ -315,16 +407,13 @@ router.put(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing product
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing product.
+             */
             const product =
-                await prisma.product.findUnique({
-                    where: {
-                        productId: req.params.id,
-                    },
-                });
+                await Product.findOne({
+                    productId: req.params.id,
+                }).lean();
 
             if (!product) {
                 res.status(404).json({
@@ -353,20 +442,21 @@ router.put(
                 status,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Check duplicate SKU
-            // --------------------------------------------------------------
-
+            /**
+             * Check duplicate SKU.
+             */
             if (
                 sku !== undefined &&
                 sku !== product.sku
             ) {
                 const existingSku =
-                    await prisma.product.findUnique({
-                        where: {
-                            sku,
+                    await Product.findOne({
+                        sku,
+                        productId: {
+                            $ne:
+                                product.productId,
                         },
-                    });
+                    }).lean();
 
                 if (existingSku) {
                     res.status(409).json({
@@ -379,10 +469,9 @@ router.put(
                 }
             }
 
-            // --------------------------------------------------------------
-            // Detect price changes
-            // --------------------------------------------------------------
-
+            /**
+             * Detect price changes.
+             */
             const oldCostPrice =
                 Number(product.costPrice);
 
@@ -400,91 +489,128 @@ router.put(
                     : oldSellingPrice;
 
             const costPriceChanged =
-                newCostPrice !== oldCostPrice;
+                newCostPrice !==
+                oldCostPrice;
 
             const sellingPriceChanged =
                 newSellingPrice !==
                 oldSellingPrice;
 
-            // --------------------------------------------------------------
-            // Update product
-            // --------------------------------------------------------------
+            /**
+             * Build update object.
+             */
+            const updateData: Record<
+                string,
+                unknown
+            > = {};
 
+            if (sku !== undefined) {
+                updateData.sku = sku;
+            }
+
+            if (productName !== undefined) {
+                updateData.productName =
+                    productName;
+            }
+
+            if (categoryId !== undefined) {
+                updateData.categoryId =
+                    categoryId;
+            }
+
+            if (brandId !== undefined) {
+                updateData.brandId =
+                    brandId;
+            }
+
+            if (model !== undefined) {
+                updateData.model = model;
+            }
+
+            if (serialNumber !== undefined) {
+                updateData.serialNumber =
+                    serialNumber;
+            }
+
+            if (description !== undefined) {
+                updateData.description =
+                    description;
+            }
+
+            if (quantity !== undefined) {
+                updateData.quantity =
+                    Number(quantity);
+            }
+
+            if (reorderLevel !== undefined) {
+                updateData.reorderLevel =
+                    Number(reorderLevel);
+            }
+
+            if (costPrice !== undefined) {
+                updateData.costPrice =
+                    newCostPrice;
+            }
+
+            if (sellingPrice !== undefined) {
+                updateData.sellingPrice =
+                    newSellingPrice;
+            }
+
+            if (supplierId !== undefined) {
+                updateData.supplierId =
+                    supplierId;
+            }
+
+            if (location !== undefined) {
+                updateData.location =
+                    location;
+            }
+
+            if (status !== undefined) {
+                updateData.status =
+                    status;
+            }
+
+            /**
+             * Update product.
+             */
             const updatedProduct =
-                await prisma.product.update({
-                    where: {
-                        productId: req.params.id,
+                await Product.findOneAndUpdate(
+                    {
+                        productId:
+                            req.params.id,
                     },
-
-                    data: {
-                        ...(sku !== undefined && {
-                            sku,
-                        }),
-
-                        ...(productName !== undefined && {
-                            productName,
-                        }),
-
-                        ...(categoryId !== undefined && {
-                            categoryId,
-                        }),
-
-                        ...(brandId !== undefined && {
-                            brandId,
-                        }),
-
-                        ...(model !== undefined && {
-                            model,
-                        }),
-
-                        ...(serialNumber !== undefined && {
-                            serialNumber,
-                        }),
-
-                        ...(description !== undefined && {
-                            description,
-                        }),
-
-                        ...(quantity !== undefined && {
-                            quantity,
-                        }),
-
-                        ...(reorderLevel !== undefined && {
-                            reorderLevel,
-                        }),
-
-                        ...(costPrice !== undefined && {
-                            costPrice: newCostPrice,
-                        }),
-
-                        ...(sellingPrice !== undefined && {
-                            sellingPrice: newSellingPrice,
-                        }),
-
-                        ...(supplierId !== undefined && {
-                            supplierId,
-                        }),
-
-                        ...(location !== undefined && {
-                            location,
-                        }),
-
-                        ...(status !== undefined && {
-                            status,
-                        }),
+                    {
+                        $set: updateData,
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
 
-                    include: {
-                        category: true,
-                        brand: true,
-                        supplier: true,
-                    },
+            if (!updatedProduct) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Product not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit: price change
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Resolve related documents.
+             */
+            const enrichedProduct =
+                await enrichProduct(
+                    updatedProduct
+                );
+
+            /**
+             * Audit: price change.
+             */
             if (
                 costPriceChanged ||
                 sellingPriceChanged
@@ -537,10 +663,9 @@ router.put(
                 }
             }
 
-            // --------------------------------------------------------------
-            // Audit: general update
-            // --------------------------------------------------------------
-
+            /**
+             * Audit: general update.
+             */
             try {
                 await createAuditLog({
                     userId:
@@ -575,7 +700,9 @@ router.put(
                 success: true,
                 message:
                     "Product updated successfully",
-                data: updatedProduct,
+                data: cleanProduct(
+                    enrichedProduct
+                ),
             });
         } catch (error) {
             next(error);
@@ -583,10 +710,11 @@ router.put(
     }
 );
 
-
-// ============================================================================
-// ARCHIVE PRODUCT
-// ============================================================================
+/**
+ * ============================================================================
+ * ARCHIVE PRODUCT
+ * ============================================================================
+ */
 
 router.patch(
     "/:id/archive",
@@ -600,11 +728,9 @@ router.patch(
     ) => {
         try {
             const product =
-                await prisma.product.findUnique({
-                    where: {
-                        productId: req.params.id,
-                    },
-                });
+                await Product.findOne({
+                    productId: req.params.id,
+                }).lean();
 
             if (!product) {
                 res.status(404).json({
@@ -616,25 +742,47 @@ router.patch(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Archive product
-            // --------------------------------------------------------------
-
+            /**
+             * Archive product.
+             */
             const archivedProduct =
-                await prisma.product.update({
-                    where: {
-                        productId: req.params.id,
+                await Product.findOneAndUpdate(
+                    {
+                        productId:
+                            req.params.id,
                     },
+                    {
+                        $set: {
+                            status: "Archived",
+                        },
+                    },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
 
-                    data: {
-                        status: "Archived",
-                    },
+            if (!archivedProduct) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Product not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit log
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Resolve related documents.
+             */
+            const enrichedProduct =
+                await enrichProduct(
+                    archivedProduct
+                );
+
+            /**
+             * Audit log.
+             */
             try {
                 await createAuditLog({
                     userId:
@@ -669,7 +817,9 @@ router.patch(
                 success: true,
                 message:
                     "Product archived successfully",
-                data: archivedProduct,
+                data: cleanProduct(
+                    enrichedProduct
+                ),
             });
         } catch (error) {
             next(error);
@@ -677,10 +827,11 @@ router.patch(
     }
 );
 
-
-// ============================================================================
-// DELETE PRODUCT
-// ============================================================================
+/**
+ * ============================================================================
+ * DELETE PRODUCT
+ * ============================================================================
+ */
 
 router.delete(
     "/:id",
@@ -694,11 +845,9 @@ router.delete(
     ) => {
         try {
             const product =
-                await prisma.product.findUnique({
-                    where: {
-                        productId: req.params.id,
-                    },
-                });
+                await Product.findOne({
+                    productId: req.params.id,
+                }).lean();
 
             if (!product) {
                 res.status(404).json({
@@ -710,20 +859,17 @@ router.delete(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Delete product
-            // --------------------------------------------------------------
-
-            await prisma.product.delete({
-                where: {
-                    productId: req.params.id,
-                },
+            /**
+             * Delete product.
+             */
+            await Product.deleteOne({
+                productId:
+                    req.params.id,
             });
 
-            // --------------------------------------------------------------
-            // Audit log
-            // --------------------------------------------------------------
-
+            /**
+             * Audit log.
+             */
             try {
                 await createAuditLog({
                     userId:
@@ -765,9 +911,10 @@ router.delete(
     }
 );
 
-
-// ============================================================================
-// EXPORT ROUTER
-// ============================================================================
+/**
+ * ============================================================================
+ * EXPORT ROUTER
+ * ============================================================================
+ */
 
 export default router;

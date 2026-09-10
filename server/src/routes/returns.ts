@@ -1,67 +1,282 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import mongoose from "mongoose";
+import { z } from "zod";
+
+import Return from "../models/Return";
+import Product from "../models/Product";
+import Sale from "../models/Sale";
+import Customer from "../models/Customer";
+import User from "../models/User";
+import StockMovement from "../models/StockMovement";
+
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
+
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
 } from "../middleware/auth";
+
 import { validate } from "../middleware/validate";
-import { z } from "zod";
 
 const router = Router();
 
-const returnDateSchema = z.string().trim().max(50).optional().nullable();
+/*
+|--------------------------------------------------------------------------
+| RETURNS ROUTES
+|--------------------------------------------------------------------------
+|
+| MongoDB / Mongoose version
+|
+| Permissions:
+|
+| returns.view
+| returns.create
+| returns.update
+|
+| DELETE:
+| Admin only, preserving the previous behavior.
+|
+*/
+
+/**
+ * ============================================================================
+ * VALIDATION
+ * ============================================================================
+ */
+
+const returnDateSchema = z
+    .string()
+    .trim()
+    .max(50)
+    .optional()
+    .nullable();
 
 const createReturnSchema = z.object({
     body: z.object({
-        returnId: z.string().trim().max(100).optional(),
-        saleId: z.string().trim().max(100).optional().nullable(),
-        productId: z.string().trim().min(1, "Product is required").max(100),
-        serialNumber: z.string().trim().max(150).optional().nullable(),
-        customerId: z.string().trim().max(100).optional().nullable(),
-        returnDate: returnDateSchema,
-        reason: z.string().trim().min(1, "Return reason is required").max(500),
-        quantity: z.coerce.number().finite().int().min(1).max(1000000),
-        refundAmount: z.coerce.number().finite().min(0).max(100000000000).optional(),
-        returnType: z.string().trim().max(100).optional(),
-        conditionAfterReturn: z.string().trim().max(100).optional(),
-        status: z.string().trim().max(50).optional(),
-        restock: z.union([z.boolean(), z.string()]).optional(),
-        processedBy: z.string().trim().max(100).optional(),
-        notes: z.string().trim().max(1000).optional().nullable(),
+        returnId: z
+            .string()
+            .trim()
+            .max(100)
+            .optional(),
+
+        saleId: z
+            .string()
+            .trim()
+            .max(100)
+            .optional()
+            .nullable(),
+
+        productId: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Product is required"
+            )
+            .max(100),
+
+        serialNumber: z
+            .string()
+            .trim()
+            .max(150)
+            .optional()
+            .nullable(),
+
+        customerId: z
+            .string()
+            .trim()
+            .max(100)
+            .optional()
+            .nullable(),
+
+        returnDate:
+            returnDateSchema,
+
+        reason: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Return reason is required"
+            )
+            .max(500),
+
+        quantity: z.coerce
+            .number()
+            .finite()
+            .int()
+            .min(1)
+            .max(1000000),
+
+        refundAmount: z.coerce
+            .number()
+            .finite()
+            .min(0)
+            .max(100000000000)
+            .optional(),
+
+        returnType: z
+            .string()
+            .trim()
+            .max(100)
+            .optional(),
+
+        conditionAfterReturn: z
+            .string()
+            .trim()
+            .max(100)
+            .optional(),
+
+        status: z
+            .string()
+            .trim()
+            .max(50)
+            .optional(),
+
+        restock: z
+            .union([
+                z.boolean(),
+                z.string(),
+            ])
+            .optional(),
+
+        processedBy: z
+            .string()
+            .trim()
+            .max(100)
+            .optional(),
+
+        notes: z
+            .string()
+            .trim()
+            .max(1000)
+            .optional()
+            .nullable(),
     }),
 });
 
 const updateReturnSchema = z.object({
     params: z.object({
-        id: z.string().trim().min(1, "Return ID is required").max(100),
+        id: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Return ID is required"
+            )
+            .max(100),
     }),
+
     body: z.object({
-        saleId: z.string().trim().max(100).optional().nullable(),
-        productId: z.string().trim().min(1).max(100).optional(),
-        serialNumber: z.string().trim().max(150).optional().nullable(),
-        customerId: z.string().trim().max(100).optional().nullable(),
-        returnDate: returnDateSchema,
-        reason: z.string().trim().min(1).max(500).optional(),
-        quantity: z.coerce.number().finite().int().min(1).max(1000000).optional(),
-        refundAmount: z.coerce.number().finite().min(0).max(100000000000).optional(),
-        returnType: z.string().trim().max(100).optional().nullable(),
-        conditionAfterReturn: z.string().trim().max(100).optional().nullable(),
-        status: z.string().trim().max(50).optional().nullable(),
-        processedBy: z.string().trim().max(100).optional(),
-        notes: z.string().trim().max(1000).optional().nullable(),
+        saleId: z
+            .string()
+            .trim()
+            .max(100)
+            .optional()
+            .nullable(),
+
+        productId: z
+            .string()
+            .trim()
+            .min(1)
+            .max(100)
+            .optional(),
+
+        serialNumber: z
+            .string()
+            .trim()
+            .max(150)
+            .optional()
+            .nullable(),
+
+        customerId: z
+            .string()
+            .trim()
+            .max(100)
+            .optional()
+            .nullable(),
+
+        returnDate:
+            returnDateSchema,
+
+        reason: z
+            .string()
+            .trim()
+            .min(1)
+            .max(500)
+            .optional(),
+
+        quantity: z.coerce
+            .number()
+            .finite()
+            .int()
+            .min(1)
+            .max(1000000)
+            .optional(),
+
+        refundAmount: z.coerce
+            .number()
+            .finite()
+            .min(0)
+            .max(100000000000)
+            .optional(),
+
+        returnType: z
+            .string()
+            .trim()
+            .max(100)
+            .optional()
+            .nullable(),
+
+        conditionAfterReturn: z
+            .string()
+            .trim()
+            .max(100)
+            .optional()
+            .nullable(),
+
+        status: z
+            .string()
+            .trim()
+            .max(50)
+            .optional()
+            .nullable(),
+
+        processedBy: z
+            .string()
+            .trim()
+            .max(100)
+            .optional(),
+
+        notes: z
+            .string()
+            .trim()
+            .max(1000)
+            .optional()
+            .nullable(),
     }),
 });
 
 const returnIdSchema = z.object({
     params: z.object({
-        id: z.string().trim().min(1, "Return ID is required").max(100),
+        id: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Return ID is required"
+            )
+            .max(100),
     }),
 });
 
-
+/**
+ * ============================================================================
+ * TYPES / HELPERS
+ * ============================================================================
+ */
 
 type ReturnBody = {
     returnId?: string;
@@ -81,91 +296,309 @@ type ReturnBody = {
     notes?: string;
 };
 
-const isTrue = (value: unknown) =>
+const isTrue = (
+    value: unknown
+) =>
     value === true ||
     String(value ?? "")
         .toLowerCase()
         .trim() === "true";
 
-const clean = (value: unknown) => {
-    const text = String(value ?? "").trim();
+const clean = (
+    value: unknown
+) => {
+    const text = String(
+        value ?? ""
+    ).trim();
+
     return text || undefined;
 };
 
-/*
-|--------------------------------------------------------------------------
-| RETURNS ROUTES
-|--------------------------------------------------------------------------
-|
-| Permissions:
-|
-| returns.view
-| returns.create
-| returns.update
-|
-*/
+function cleanDocument(
+    document: any
+) {
+    if (!document) {
+        return document;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
+ * Parse return date safely.
+ */
+function parseReturnDate(
+    value: unknown
+): Date {
+    if (
+        value === undefined ||
+        value === null ||
+        String(value).trim() === ""
+    ) {
+        return new Date();
+    }
+
+    const parsedDate =
+        new Date(
+            String(value).trim()
+        );
+
+    if (
+        Number.isNaN(
+            parsedDate.getTime()
+        )
+    ) {
+        throw new Error(
+            "returnDate must be a valid date"
+        );
+    }
+
+    return parsedDate;
+}
 
 /**
  * ============================================================================
  * GET ALL RETURNS
  * ============================================================================
  */
+
 router.get(
     "/",
     authenticate,
     requirePermission("returns.view"),
     async (req, res, next) => {
         try {
-            const search = String(req.query.search ?? "").trim();
+            const search = String(
+                req.query.search ?? ""
+            ).trim();
 
-            const returns = await prisma.return.findMany({
-                where: search
-                    ? {
-                        OR: [
-                            {
-                                returnId: {
-                                    contains: search,
-                                    mode: "insensitive",
-                                },
-                            },
-                            {
-                                saleId: {
-                                    contains: search,
-                                    mode: "insensitive",
-                                },
-                            },
-                            {
-                                productId: {
-                                    contains: search,
-                                    mode: "insensitive",
-                                },
-                            },
-                            {
-                                reason: {
-                                    contains: search,
-                                    mode: "insensitive",
-                                },
-                            },
-                            {
-                                processedBy: {
-                                    contains: search,
-                                    mode: "insensitive",
-                                },
-                            },
-                        ],
-                    }
-                    : undefined,
+            const filter: Record<
+                string,
+                any
+            > = {};
 
-                orderBy: {
-                    returnDate: "desc",
-                },
-            });
+            if (search) {
+                const regex =
+                    new RegExp(
+                        search.replace(
+                            /[.*+?^${}()|[\]\\]/g,
+                            "\\$&"
+                        ),
+                        "i"
+                    );
+
+                filter.$or = [
+                    {
+                        returnId:
+                            regex,
+                    },
+                    {
+                        saleId:
+                            regex,
+                    },
+                    {
+                        productId:
+                            regex,
+                    },
+                    {
+                        reason:
+                            regex,
+                    },
+                    {
+                        processedBy:
+                            regex,
+                    },
+                    {
+                        customerId:
+                            regex,
+                    },
+                    {
+                        serialNumber:
+                            regex,
+                    },
+                ];
+            }
+
+            const records =
+                await Return.find(
+                    filter
+                )
+                    .sort({
+                        returnDate: -1,
+                    })
+                    .lean();
+
+            /**
+             * Resolve related records.
+             */
+            const productIds =
+                Array.from(
+                    new Set(
+                        records
+                            .map(
+                                (item) =>
+                                    item.productId
+                            )
+                            .filter(Boolean)
+                            .map(String)
+                    )
+                );
+
+            const customerIds =
+                Array.from(
+                    new Set(
+                        records
+                            .map(
+                                (item) =>
+                                    item.customerId
+                            )
+                            .filter(Boolean)
+                            .map(String)
+                    )
+                );
+
+            const saleIds =
+                Array.from(
+                    new Set(
+                        records
+                            .map(
+                                (item) =>
+                                    item.saleId
+                            )
+                            .filter(Boolean)
+                            .map(String)
+                    )
+                );
+
+            const [
+                products,
+                customers,
+                sales,
+            ] =
+                await Promise.all([
+                    Product.find({
+                        productId: {
+                            $in: productIds,
+                        },
+                    }).lean(),
+
+                    Customer.find({
+                        customerId: {
+                            $in: customerIds,
+                        },
+                    }).lean(),
+
+                    Sale.find({
+                        saleId: {
+                            $in: saleIds,
+                        },
+                    }).lean(),
+                ]);
+
+            const productMap =
+                new Map<string, any>(
+                    products.map(
+                        (product: any) =>
+                            [
+                                String(
+                                    product.productId
+                                ),
+                                cleanDocument(
+                                    product
+                                ),
+                            ] as [
+                                string,
+                                any
+                            ]
+                    )
+                );
+
+            const customerMap =
+                new Map<string, any>(
+                    customers.map(
+                        (customer: any) =>
+                            [
+                                String(
+                                    customer.customerId
+                                ),
+                                cleanDocument(
+                                    customer
+                                ),
+                            ] as [
+                                string,
+                                any
+                            ]
+                    )
+                );
+
+            const saleMap =
+                new Map<string, any>(
+                    sales.map(
+                        (sale: any) =>
+                            [
+                                String(
+                                    sale.saleId
+                                ),
+                                cleanDocument(
+                                    sale
+                                ),
+                            ] as [
+                                string,
+                                any
+                            ]
+                    )
+                );
+
+            const data =
+                records.map(
+                    (record: any) => ({
+                        ...cleanDocument(
+                            record
+                        ),
+
+                        product:
+                            productMap.get(
+                                String(
+                                    record.productId
+                                )
+                            ) ?? null,
+
+                        customer:
+                            record.customerId
+                                ? customerMap.get(
+                                    String(
+                                        record.customerId
+                                    )
+                                ) ?? null
+                                : null,
+
+                        sale:
+                            record.saleId
+                                ? saleMap.get(
+                                    String(
+                                        record.saleId
+                                    )
+                                ) ?? null
+                                : null,
+                    })
+                );
 
             res.json({
                 success: true,
-                data: returns,
+                data,
             });
         } catch (error) {
+            console.error(
+                "[RETURNS] FETCH ERROR:",
+                error
+            );
+
             next(error);
         }
     }
@@ -176,32 +609,84 @@ router.get(
  * GET SINGLE RETURN
  * ============================================================================
  */
+
 router.get(
     "/:id",
     authenticate,
     requirePermission("returns.view"),
     async (req, res, next) => {
         try {
-            const record = await prisma.return.findUnique({
-                where: {
-                    returnId: req.params.id,
-                },
-            });
+            const record =
+                await Return.findOne({
+                    returnId:
+                        req.params.id,
+                }).lean();
 
             if (!record) {
                 res.status(404).json({
                     success: false,
-                    message: "Return not found",
+                    message:
+                        "Return not found",
                 });
 
                 return;
             }
 
+            const [
+                product,
+                customer,
+                sale,
+            ] = await Promise.all([
+                Product.findOne({
+                    productId:
+                        record.productId,
+                }).lean(),
+
+                record.customerId
+                    ? Customer.findOne({
+                        customerId:
+                            record.customerId,
+                    }).lean()
+                    : null,
+
+                record.saleId
+                    ? Sale.findOne({
+                        saleId:
+                            record.saleId,
+                    }).lean()
+                    : null,
+            ]);
+
             res.json({
                 success: true,
-                data: record,
+
+                data: {
+                    ...cleanDocument(
+                        record
+                    ),
+
+                    product:
+                        cleanDocument(
+                            product
+                        ) ?? null,
+
+                    customer:
+                        cleanDocument(
+                            customer
+                        ) ?? null,
+
+                    sale:
+                        cleanDocument(
+                            sale
+                        ) ?? null,
+                },
             });
         } catch (error) {
+            console.error(
+                "[RETURNS] FETCH SINGLE ERROR:",
+                error
+            );
+
             next(error);
         }
     }
@@ -212,6 +697,7 @@ router.get(
  * CREATE RETURN
  * ============================================================================
  */
+
 router.post(
     "/",
     authenticate,
@@ -222,26 +708,42 @@ router.post(
         res,
         next
     ) => {
+        const session =
+            await mongoose.startSession();
+
         try {
-            const body = req.body as ReturnBody;
+            const body =
+                req.body as ReturnBody;
 
-            // ----------------------------------------------------------------
-            // Clean input values
-            // ----------------------------------------------------------------
+            const productId =
+                clean(
+                    body.productId
+                );
 
-            const productId = clean(body.productId);
-            const saleId = clean(body.saleId);
-            const customerId = clean(body.customerId);
-            const serialNumber = clean(body.serialNumber);
-            const reason = clean(body.reason);
+            const saleId =
+                clean(body.saleId);
 
-            // ----------------------------------------------------------------
-            // Use authenticated user
-            // ----------------------------------------------------------------
+            const customerId =
+                clean(
+                    body.customerId
+                );
 
-            const authenticatedUserId = clean(req.user?.userId);
+            const serialNumber =
+                clean(
+                    body.serialNumber
+                );
 
-            if (!authenticatedUserId) {
+            const reason =
+                clean(body.reason);
+
+            const authenticatedUserId =
+                clean(
+                    req.user?.userId
+                );
+
+            if (
+                !authenticatedUserId
+            ) {
                 res.status(401).json({
                     success: false,
                     message:
@@ -251,38 +753,34 @@ router.post(
                 return;
             }
 
-            const processedBy = authenticatedUserId;
+            const processedBy =
+                authenticatedUserId;
 
-            // ----------------------------------------------------------------
-            // Quantity
-            // ----------------------------------------------------------------
-
-            const quantity = Number(body.quantity);
-
-            // ----------------------------------------------------------------
-            // Refund
-            // ----------------------------------------------------------------
+            const quantity =
+                Number(
+                    body.quantity
+                );
 
             const refundAmount =
-                body.refundAmount === undefined ||
-                    body.refundAmount === null
+                body.refundAmount ===
+                    undefined ||
+                    body.refundAmount ===
+                    null
                     ? 0
-                    : Number(body.refundAmount);
+                    : Number(
+                        body.refundAmount
+                    );
 
-            // ----------------------------------------------------------------
-            // Restock
-            // ----------------------------------------------------------------
-
-            const restock = isTrue(body.restock);
-
-            // ----------------------------------------------------------------
-            // Validation
-            // ----------------------------------------------------------------
+            const restock =
+                isTrue(
+                    body.restock
+                );
 
             if (!productId) {
                 res.status(400).json({
                     success: false,
-                    message: "Product is required",
+                    message:
+                        "Product is required",
                 });
 
                 return;
@@ -291,14 +789,17 @@ router.post(
             if (!reason) {
                 res.status(400).json({
                     success: false,
-                    message: "Return reason is required",
+                    message:
+                        "Return reason is required",
                 });
 
                 return;
             }
 
             if (
-                !Number.isInteger(quantity) ||
+                !Number.isInteger(
+                    quantity
+                ) ||
                 quantity <= 0
             ) {
                 res.status(400).json({
@@ -311,7 +812,9 @@ router.post(
             }
 
             if (
-                !Number.isFinite(refundAmount) ||
+                !Number.isFinite(
+                    refundAmount
+                ) ||
                 refundAmount < 0
             ) {
                 res.status(400).json({
@@ -323,222 +826,363 @@ router.post(
                 return;
             }
 
-            // ----------------------------------------------------------------
-            // Transaction
-            // ----------------------------------------------------------------
+            let parsedReturnDate:
+                Date;
 
-            const result = await prisma.$transaction(
-                async (tx) => {
-                    const product =
-                        await tx.product.findUnique({
-                            where: {
-                                productId,
-                            },
-                        });
+            try {
+                parsedReturnDate =
+                    parseReturnDate(
+                        body.returnDate
+                    );
+            } catch {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "returnDate must be a valid date",
+                });
 
-                    if (!product) {
-                        throw new Error(
-                            `Product not found: ${productId}`
-                        );
-                    }
+                return;
+            }
 
-                    let resolvedCustomerId = customerId;
-                    let resolvedSaleId = saleId;
+            /**
+             * ---------------------------------------------------------------
+             * MongoDB transaction
+             * ---------------------------------------------------------------
+             */
 
-                    // --------------------------------------------------------
-                    // Resolve sale
-                    // --------------------------------------------------------
+            session.startTransaction();
 
-                    if (saleId) {
-                        const sale =
-                            await tx.sale.findUnique({
-                                where: {
-                                    saleId,
-                                },
-                            });
+            const product =
+                await Product.findOne({
+                    productId,
+                }).session(
+                    session
+                );
 
-                        if (!sale) {
-                            throw new Error(
-                                `Sale not found: ${saleId}`
-                            );
+            if (!product) {
+                throw new Error(
+                    `Product not found: ${productId}`
+                );
+            }
+
+            let resolvedCustomerId =
+                customerId;
+
+            let resolvedSaleId =
+                saleId;
+
+            /**
+             * ---------------------------------------------------------------
+             * Resolve sale
+             * ---------------------------------------------------------------
+             */
+
+            if (saleId) {
+                const sale =
+                    await Sale.findOne({
+                        saleId,
+                    }).session(
+                        session
+                    );
+
+                if (!sale) {
+                    throw new Error(
+                        `Sale not found: ${saleId}`
+                    );
+                }
+
+                resolvedCustomerId =
+                    resolvedCustomerId ??
+                    clean(
+                        sale.customerId
+                    );
+
+                resolvedSaleId =
+                    sale.saleId;
+            }
+
+            /**
+             * ---------------------------------------------------------------
+             * Validate customer when supplied
+             * ---------------------------------------------------------------
+             */
+
+            if (
+                resolvedCustomerId
+            ) {
+                const customer =
+                    await Customer.findOne(
+                        {
+                            customerId:
+                                resolvedCustomerId,
                         }
+                    ).session(
+                        session
+                    );
 
-                        resolvedCustomerId =
-                            resolvedCustomerId ??
-                            sale.customerId ??
-                            undefined;
-                    } else {
-                        resolvedSaleId = undefined;
-                    }
+                if (!customer) {
+                    throw new Error(
+                        `Customer not found: ${resolvedCustomerId}`
+                    );
+                }
+            }
 
-                    // --------------------------------------------------------
-                    // Return ID
-                    // --------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Validate authenticated user
+             * ---------------------------------------------------------------
+             */
 
-                    const returnId =
-                        clean(body.returnId) ||
-                        generateId("RET");
+            const user =
+                await User.findOne({
+                    userId:
+                        authenticatedUserId,
+                }).session(
+                    session
+                );
 
-                    // --------------------------------------------------------
-                    // Create return
-                    // --------------------------------------------------------
+            if (!user) {
+                throw new Error(
+                    `Authenticated user not found: ${authenticatedUserId}`
+                );
+            }
 
-                    const record =
-                        await tx.return.create({
-                            data: {
-                                returnId,
+            /**
+             * ---------------------------------------------------------------
+             * Generate Return ID
+             * ---------------------------------------------------------------
+             */
 
-                                saleId:
-                                    resolvedSaleId,
+            const returnId =
+                clean(
+                    body.returnId
+                ) ||
+                generateMongoId(
+                    "RET"
+                );
 
-                                productId,
+            const duplicateReturn =
+                await Return.findOne({
+                    returnId,
+                }).session(
+                    session
+                );
 
-                                serialNumber,
+            if (
+                duplicateReturn
+            ) {
+                throw new Error(
+                    `Return ID already exists: ${returnId}`
+                );
+            }
 
-                                customerId:
-                                    resolvedCustomerId,
+            /**
+             * ---------------------------------------------------------------
+             * Create return
+             * ---------------------------------------------------------------
+             */
 
-                                returnDate:
-                                    body.returnDate
-                                        ? new Date(
-                                            body.returnDate
-                                        )
-                                        : new Date(),
+            const returnType =
+                clean(
+                    body.returnType
+                ) ||
+                "Customer Return";
 
-                                reason,
+            const conditionAfterReturn =
+                clean(
+                    body.conditionAfterReturn
+                ) ||
+                (restock
+                    ? "Good"
+                    : "Defective / RMA");
 
-                                quantity,
+            const status =
+                clean(
+                    body.status
+                ) ||
+                "Completed";
 
-                                refundAmount,
+            const createdReturn =
+                await Return.create(
+                    [
+                        {
+                            returnId,
 
-                                returnType:
-                                    clean(
-                                        body.returnType
-                                    ) ||
-                                    "Customer Return",
+                            saleId:
+                                resolvedSaleId,
 
-                                conditionAfterReturn:
-                                    clean(
-                                        body.conditionAfterReturn
-                                    ) ||
-                                    (restock
-                                        ? "Good"
-                                        : "Defective / RMA"),
+                            productId,
 
-                                status:
-                                    clean(body.status) ||
-                                    "Completed",
+                            serialNumber,
 
-                                processedBy,
+                            customerId:
+                                resolvedCustomerId,
 
-                                notes: clean(
+                            returnDate:
+                                parsedReturnDate,
+
+                            reason,
+
+                            quantity,
+
+                            refundAmount,
+
+                            returnType,
+
+                            conditionAfterReturn,
+
+                            status,
+
+                            restock,
+
+                            processedBy,
+
+                            notes:
+                                clean(
                                     body.notes
                                 ),
-                            },
-                        });
-
-                    // --------------------------------------------------------
-                    // Restock
-                    // --------------------------------------------------------
-
-                    if (restock) {
-                        const previousQuantity =
-                            product.quantity;
-
-                        const newQuantity =
-                            previousQuantity +
-                            quantity;
-
-                        await tx.product.update({
-                            where: {
-                                productId,
-                            },
-
-                            data: {
-                                quantity:
-                                    newQuantity,
-                            },
-                        });
-
-                        const staffId = clean(
-                            req.user?.userId
-                        );
-
-                        await tx.stockMovement.create({
-                            data: {
-                                movementId:
-                                    generateId("MOV"),
-
-                                productId,
-
-                                movementType:
-                                    "Return",
-
-                                quantity,
-
-                                previousQuantity,
-
-                                newQuantity,
-
-                                referenceId:
-                                    record.returnId,
-
-                                reason:
-                                    `Customer return: ${reason}`,
-
-                                ...(staffId
-                                    ? {
-                                        staffId,
-                                    }
-                                    : {}),
-
-                                notes:
-                                    "Stock restored from customer return",
-                            },
-                        });
+                        },
+                    ],
+                    {
+                        session,
                     }
+                );
 
-                    return record;
-                }
-            );
+            const record =
+                createdReturn[0];
 
-            // ----------------------------------------------------------------
-            // Audit Trail
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Restock product
+             * ---------------------------------------------------------------
+             */
+
+            if (restock) {
+                const previousQuantity =
+                    Number(
+                        product.quantity
+                    );
+
+                const newQuantity =
+                    previousQuantity +
+                    quantity;
+
+                await Product.updateOne(
+                    {
+                        productId,
+                    },
+                    {
+                        $set: {
+                            quantity:
+                                newQuantity,
+                        },
+                    },
+                    {
+                        session,
+                    }
+                );
+
+                await StockMovement.create(
+                    [
+                        {
+                            movementId:
+                                generateMongoId(
+                                    "MOV"
+                                ),
+
+                            productId,
+
+                            movementType:
+                                "Return",
+
+                            quantity,
+
+                            previousQuantity,
+
+                            newQuantity,
+
+                            referenceId:
+                                record.returnId,
+
+                            reason:
+                                `Customer return: ${reason}`,
+
+                            createdBy:
+                                authenticatedUserId,
+
+                            movementDate:
+                                new Date(),
+                        },
+                    ],
+                    {
+                        session,
+                    }
+                );
+            }
+
+            await session.commitTransaction();
+
+            /**
+             * ---------------------------------------------------------------
+             * Audit trail
+             * ---------------------------------------------------------------
+             */
 
             try {
                 await createAuditLog({
                     userId:
                         authenticatedUserId,
 
-                    action: "RETURN",
+                    action:
+                        "RETURN",
 
-                    module: "Returns",
+                    module:
+                        "Returns",
 
                     recordId:
-                        result.returnId,
+                        record.returnId,
 
                     description:
-                        `Return ${result.returnId} processed for product ${result.productId}. Quantity: ${result.quantity}, refund: ${result.refundAmount}, restocked: ${restock ? "Yes" : "No"}, reason: ${result.reason}.`,
+                        `Return ${record.returnId} processed for product ${record.productId}. Quantity: ${record.quantity}, refund: ${record.refundAmount}, restocked: ${restock ? "Yes" : "No"}, reason: ${record.reason}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
-                    "Failed to create return audit log:",
+                    "[RETURNS] CREATE AUDIT ERROR:",
                     auditError
                 );
             }
 
             res.status(201).json({
                 success: true,
+
                 message:
                     "Return processed successfully",
-                data: result,
+
+                data: cleanDocument(
+                    record.toObject()
+                ),
             });
         } catch (error) {
+            if (
+                session.inTransaction()
+            ) {
+                await session.abortTransaction();
+            }
+
+            console.error(
+                "[RETURNS] CREATE ERROR:",
+                error
+            );
+
             next(error);
+        } finally {
+            await session.endSession();
         }
     }
 );
@@ -548,6 +1192,7 @@ router.post(
  * UPDATE RETURN
  * ============================================================================
  */
+
 router.put(
     "/:id",
     authenticate,
@@ -560,24 +1205,28 @@ router.put(
     ) => {
         try {
             const existing =
-                await prisma.return.findUnique({
-                    where: {
-                        returnId: req.params.id,
-                    },
-                });
+                await Return.findOne({
+                    returnId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
                     success: false,
-                    message: "Return not found",
+                    message:
+                        "Return not found",
                 });
 
                 return;
             }
 
-            const body = req.body as ReturnBody;
+            const body =
+                req.body as ReturnBody;
 
-            const data: Record<string, any> = {};
+            const data: Record<
+                string,
+                any
+            > = {};
 
             const returnFields = [
                 "saleId",
@@ -588,26 +1237,35 @@ router.put(
                 "returnType",
                 "conditionAfterReturn",
                 "status",
-                "processedBy",
                 "notes",
             ] as const;
 
             for (const field of returnFields) {
-                if (body[field] !== undefined) {
+                if (
+                    body[field] !==
+                    undefined
+                ) {
                     data[field] =
-                        body[field] === ""
-                            ? null
+                        body[field] ===
+                            ""
+                            ? undefined
                             : body[field];
                 }
             }
 
-            if (body.quantity !== undefined) {
-                const quantity = Number(
-                    body.quantity
-                );
+            if (
+                body.quantity !==
+                undefined
+            ) {
+                const quantity =
+                    Number(
+                        body.quantity
+                    );
 
                 if (
-                    !Number.isInteger(quantity) ||
+                    !Number.isInteger(
+                        quantity
+                    ) ||
                     quantity <= 0
                 ) {
                     res.status(400).json({
@@ -619,15 +1277,18 @@ router.put(
                     return;
                 }
 
-                data.quantity = quantity;
+                data.quantity =
+                    quantity;
             }
 
             if (
-                body.refundAmount !== undefined
+                body.refundAmount !==
+                undefined
             ) {
-                const refundAmount = Number(
-                    body.refundAmount
-                );
+                const refundAmount =
+                    Number(
+                        body.refundAmount
+                    );
 
                 if (
                     !Number.isFinite(
@@ -644,21 +1305,20 @@ router.put(
                     return;
                 }
 
-                data.refundAmount = refundAmount;
+                data.refundAmount =
+                    refundAmount;
             }
 
             if (
-                body.returnDate !== undefined
+                body.returnDate !==
+                undefined
             ) {
-                const parsedDate = new Date(
-                    body.returnDate
-                );
-
-                if (
-                    Number.isNaN(
-                        parsedDate.getTime()
-                    )
-                ) {
+                try {
+                    data.returnDate =
+                        parseReturnDate(
+                            body.returnDate
+                        );
+                } catch {
                     res.status(400).json({
                         success: false,
                         message:
@@ -667,40 +1327,128 @@ router.put(
 
                     return;
                 }
-
-                data.returnDate = parsedDate;
             }
 
-            // --------------------------------------------------------------
-            // Always associate updates with authenticated user when possible
-            // --------------------------------------------------------------
-
-            if (req.user?.userId) {
+            /**
+             * Never allow the frontend to
+             * change who processed the return.
+             */
+            if (
+                req.user?.userId
+            ) {
                 data.processedBy =
                     req.user.userId;
             }
 
-            const updated =
-                await prisma.return.update({
-                    where: {
-                        returnId: req.params.id,
-                    },
+            /**
+             * Validate product if changed.
+             */
+            if (
+                data.productId
+            ) {
+                const product =
+                    await Product.findOne({
+                        productId:
+                            data.productId,
+                    }).lean();
 
-                    data,
+                if (!product) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            `Product not found: ${data.productId}`,
+                    });
+
+                    return;
+                }
+            }
+
+            /**
+             * Validate customer if changed.
+             */
+            if (
+                data.customerId
+            ) {
+                const customer =
+                    await Customer.findOne({
+                        customerId:
+                            data.customerId,
+                    }).lean();
+
+                if (!customer) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            `Customer not found: ${data.customerId}`,
+                    });
+
+                    return;
+                }
+            }
+
+            /**
+             * Validate sale if changed.
+             */
+            if (
+                data.saleId
+            ) {
+                const sale =
+                    await Sale.findOne({
+                        saleId:
+                            data.saleId,
+                    }).lean();
+
+                if (!sale) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            `Sale not found: ${data.saleId}`,
+                    });
+
+                    return;
+                }
+            }
+
+            const updated =
+                await Return.findOneAndUpdate(
+                    {
+                        returnId:
+                            req.params.id,
+                    },
+                    {
+                        $set: data,
+                    },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!updated) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Return not found",
                 });
 
-            // ----------------------------------------------------------------
-            // Audit Trail
-            // ----------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail
+             */
             try {
                 await createAuditLog({
                     userId:
-                        clean(req.user?.userId),
+                        clean(
+                            req.user?.userId
+                        ),
 
-                    action: "UPDATE",
+                    action:
+                        "UPDATE",
 
-                    module: "Returns",
+                    module:
+                        "Returns",
 
                     recordId:
                         updated.returnId,
@@ -709,22 +1457,32 @@ router.put(
                         `Return ${updated.returnId} updated. Product: ${updated.productId}, quantity: ${updated.quantity}, refund: ${updated.refundAmount}, status: ${updated.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
-                    "Failed to create return update audit log:",
+                    "[RETURNS] UPDATE AUDIT ERROR:",
                     auditError
                 );
             }
 
             res.json({
                 success: true,
+
                 message:
                     "Return updated successfully",
-                data: updated,
+
+                data: cleanDocument(
+                    updated
+                ),
             });
         } catch (error) {
+            console.error(
+                "[RETURNS] UPDATE ERROR:",
+                error
+            );
+
             next(error);
         }
     }
@@ -735,9 +1493,16 @@ router.put(
  * DELETE RETURN
  * ============================================================================
  *
- * The permission service currently has no returns.delete permission.
- * Therefore DELETE remains Admin-only.
+ * The previous permission service did not have
+ * returns.delete, therefore DELETE remains Admin-only.
+ *
+ * IMPORTANT:
+ * This deletes the return record only.
+ * It does not automatically reverse an existing
+ * stock-restock operation.
+ * ============================================================================
  */
+
 router.delete(
     "/:id",
     authenticate,
@@ -750,7 +1515,9 @@ router.delete(
         try {
             if (
                 !req.user ||
-                String(req.user.role)
+                String(
+                    req.user.role
+                )
                     .trim()
                     .toLowerCase() !==
                 "admin"
@@ -765,39 +1532,41 @@ router.delete(
             }
 
             const existing =
-                await prisma.return.findUnique({
-                    where: {
-                        returnId: req.params.id,
-                    },
-                });
+                await Return.findOne({
+                    returnId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
                     success: false,
-                    message: "Return not found",
+                    message:
+                        "Return not found",
                 });
 
                 return;
             }
 
-            await prisma.return.delete({
-                where: {
-                    returnId: req.params.id,
-                },
+            await Return.deleteOne({
+                returnId:
+                    req.params.id,
             });
 
-            // ----------------------------------------------------------------
-            // Audit Trail
-            // ----------------------------------------------------------------
-
+            /**
+             * Audit trail
+             */
             try {
                 await createAuditLog({
                     userId:
-                        clean(req.user.userId),
+                        clean(
+                            req.user.userId
+                        ),
 
-                    action: "DELETE",
+                    action:
+                        "DELETE",
 
-                    module: "Returns",
+                    module:
+                        "Returns",
 
                     recordId:
                         existing.returnId,
@@ -806,21 +1575,28 @@ router.delete(
                         `Return ${existing.returnId} deleted. Product: ${existing.productId}, quantity: ${existing.quantity}, refund: ${existing.refundAmount}, reason: ${existing.reason}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
-                    "Failed to create return delete audit log:",
+                    "[RETURNS] DELETE AUDIT ERROR:",
                     auditError
                 );
             }
 
             res.json({
                 success: true,
+
                 message:
                     "Return deleted successfully",
             });
         } catch (error) {
+            console.error(
+                "[RETURNS] DELETE ERROR:",
+                error
+            );
+
             next(error);
         }
     }

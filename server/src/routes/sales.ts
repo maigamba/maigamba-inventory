@@ -1,9 +1,18 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
+import mongoose from "mongoose";
+
+import Sale from "../models/Sale";
+import SaleItem from "../models/SaleItem";
+import Product from "../models/Product";
+import Customer from "../models/Customer";
+import User from "../models/User";
+import Return from "../models/Return";
+import StockMovement from "../models/StockMovement";
+
 import {
-    generateId,
-    generateInvoiceNumber,
-} from "../utils/ids";
+    generateMongoId,
+} from "../utils/mongoId";
+
 import { createAuditLog } from "../services/audit.service";
 
 import {
@@ -26,6 +35,8 @@ const router = Router();
 | SALES ROUTES
 |--------------------------------------------------------------------------
 |
+| MongoDB / Mongoose version
+|
 | Permissions:
 |
 | sales.view
@@ -33,9 +44,38 @@ const router = Router();
 |
 */
 
-// ============================================================================
-// GET ALL SALES
-// ============================================================================
+/**
+ * Remove MongoDB internal fields.
+ */
+function cleanDocument(document: any) {
+    if (!document) {
+        return document;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
+ * Escape user input before creating a MongoDB regex.
+ */
+function escapeRegex(value: string) {
+    return value.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+    );
+}
+
+/**
+ * ============================================================================
+ * GET ALL SALES
+ * ============================================================================
+ */
 
 router.get(
     "/",
@@ -44,26 +84,227 @@ router.get(
     async (_req, res, next) => {
         try {
             const sales =
-                await prisma.sale.findMany({
-                    include: {
-                        customer: true,
-                        creator: true,
+                await Sale.find({})
+                    .sort({
+                        saleDate: -1,
+                    })
+                    .lean();
 
-                        items: {
-                            include: {
-                                product: true,
-                            },
+            /**
+             * Resolve related data manually because
+             * MongoDB does not use Prisma relations.
+             */
+            const customerIds = [
+                ...new Set(
+                    sales
+                        .map(
+                            (sale: any) =>
+                                sale.customerId
+                        )
+                        .filter(Boolean)
+                ),
+            ];
+
+            const userIds = [
+                ...new Set(
+                    sales
+                        .map(
+                            (sale: any) =>
+                                sale.createdBy
+                        )
+                        .filter(Boolean)
+                ),
+            ];
+
+            const saleIds = sales.map(
+                (sale: any) =>
+                    sale.saleId
+            );
+
+            const [
+                customers,
+                users,
+                saleItems,
+            ] = await Promise.all([
+                customerIds.length
+                    ? Customer.find({
+                        customerId: {
+                            $in: customerIds,
                         },
-                    },
+                    }).lean()
+                    : [],
 
-                    orderBy: {
-                        saleDate: "desc",
-                    },
+                userIds.length
+                    ? User.find({
+                        userId: {
+                            $in: userIds,
+                        },
+                    }).lean()
+                    : [],
+
+                saleIds.length
+                    ? SaleItem.find({
+                        saleId: {
+                            $in: saleIds,
+                        },
+                    }).lean()
+                    : [],
+            ]);
+
+            /**
+             * Resolve products used by sale items.
+             */
+            const productIds = [
+                ...new Set(
+                    saleItems
+                        .map(
+                            (item: any) =>
+                                item.productId
+                        )
+                        .filter(Boolean)
+                ),
+            ];
+
+            const products =
+                productIds.length
+                    ? await Product.find({
+                        productId: {
+                            $in: productIds,
+                        },
+                    }).lean()
+                    : [];
+
+            /**
+             * Explicit tuple types prevent TypeScript
+             * from treating map results as any[][].
+             */
+            const customerMap = new Map<
+                string,
+                any
+            >(
+                customers.map(
+                    (customer: any) =>
+                        [
+                            String(
+                                customer.customerId
+                            ),
+                            cleanDocument(
+                                customer
+                            ),
+                        ] as [
+                            string,
+                            any
+                        ]
+                )
+            );
+
+            const userMap = new Map<
+                string,
+                any
+            >(
+                users.map(
+                    (user: any) =>
+                        [
+                            String(
+                                user.userId
+                            ),
+                            cleanDocument(
+                                user
+                            ),
+                        ] as [
+                            string,
+                            any
+                        ]
+                )
+            );
+
+            const productMap = new Map<
+                string,
+                any
+            >(
+                products.map(
+                    (product: any) =>
+                        [
+                            String(
+                                product.productId
+                            ),
+                            cleanDocument(
+                                product
+                            ),
+                        ] as [
+                            string,
+                            any
+                        ]
+                )
+            );
+
+            const itemsBySale =
+                new Map<
+                    string,
+                    any[]
+                >();
+
+            for (
+                const item of saleItems
+            ) {
+                const existing =
+                    itemsBySale.get(
+                        item.saleId
+                    ) || [];
+
+                existing.push({
+                    ...cleanDocument(
+                        item
+                    ),
+
+                    product:
+                        productMap.get(
+                            String(
+                                item.productId
+                            )
+                        ) || null,
                 });
+
+                itemsBySale.set(
+                    item.saleId,
+                    existing
+                );
+            }
+
+            const result = sales.map(
+                (sale: any) => ({
+                    ...cleanDocument(
+                        sale
+                    ),
+
+                    customer:
+                        sale.customerId
+                            ? customerMap.get(
+                                String(
+                                    sale.customerId
+                                )
+                            ) || null
+                            : null,
+
+                    creator:
+                        sale.createdBy
+                            ? userMap.get(
+                                String(
+                                    sale.createdBy
+                                )
+                            ) || null
+                            : null,
+
+                    items:
+                        itemsBySale.get(
+                            sale.saleId
+                        ) || [],
+                })
+            );
 
             res.json({
                 success: true,
-                data: sales,
+                data: result,
             });
         } catch (error) {
             next(error);
@@ -71,9 +312,11 @@ router.get(
     }
 );
 
-// ============================================================================
-// GET SINGLE SALE
-// ============================================================================
+/**
+ * ============================================================================
+ * GET SINGLE SALE
+ * ============================================================================
+ */
 
 router.get(
     "/:id",
@@ -83,25 +326,10 @@ router.get(
     async (req, res, next) => {
         try {
             const sale =
-                await prisma.sale.findUnique({
-                    where: {
-                        saleId:
-                            req.params.id,
-                    },
-
-                    include: {
-                        customer: true,
-                        creator: true,
-
-                        items: {
-                            include: {
-                                product: true,
-                            },
-                        },
-
-                        returns: true,
-                    },
-                });
+                await Sale.findOne({
+                    saleId:
+                        req.params.id,
+                }).lean();
 
             if (!sale) {
                 res.status(404).json({
@@ -113,9 +341,127 @@ router.get(
                 return;
             }
 
+            const [
+                customer,
+                creator,
+                saleItems,
+                returns,
+            ] = await Promise.all([
+                sale.customerId
+                    ? Customer.findOne({
+                        customerId:
+                            sale.customerId,
+                    }).lean()
+                    : null,
+
+                sale.createdBy
+                    ? User.findOne({
+                        userId:
+                            sale.createdBy,
+                    }).lean()
+                    : null,
+
+                SaleItem.find({
+                    saleId:
+                        sale.saleId,
+                }).lean(),
+
+                Return.find({
+                    saleId:
+                        sale.saleId,
+                })
+                    .sort({
+                        returnDate: -1,
+                    })
+                    .lean(),
+            ]);
+
+            /**
+             * Resolve products for sale items.
+             */
+            const productIds = [
+                ...new Set(
+                    saleItems
+                        .map(
+                            (item: any) =>
+                                item.productId
+                        )
+                        .filter(Boolean)
+                ),
+            ];
+
+            const products =
+                productIds.length
+                    ? await Product.find({
+                        productId: {
+                            $in: productIds,
+                        },
+                    }).lean()
+                    : [];
+
+            const productMap = new Map<
+                string,
+                any
+            >(
+                products.map(
+                    (product: any) =>
+                        [
+                            String(
+                                product.productId
+                            ),
+                            cleanDocument(
+                                product
+                            ),
+                        ] as [
+                            string,
+                            any
+                        ]
+                )
+            );
+
+            const normalizedItems =
+                saleItems.map(
+                    (item: any) => ({
+                        ...cleanDocument(
+                            item
+                        ),
+
+                        product:
+                            productMap.get(
+                                String(
+                                    item.productId
+                                )
+                            ) || null,
+                    })
+                );
+
+            const result = {
+                ...cleanDocument(
+                    sale
+                ),
+
+                customer:
+                    cleanDocument(
+                        customer
+                    ) || null,
+
+                creator:
+                    cleanDocument(
+                        creator
+                    ) || null,
+
+                items:
+                    normalizedItems,
+
+                returns:
+                    returns.map(
+                        cleanDocument
+                    ),
+            };
+
             res.json({
                 success: true,
-                data: sale,
+                data: result,
             });
         } catch (error) {
             next(error);
@@ -123,9 +469,11 @@ router.get(
     }
 );
 
-// ============================================================================
-// CREATE SALE
-// ============================================================================
+/**
+ * ============================================================================
+ * CREATE SALE
+ * ============================================================================
+ */
 
 router.post(
     "/",
@@ -137,12 +485,19 @@ router.post(
         res,
         next
     ) => {
-        try {
-            const body = req.body ?? {};
+        let session:
+            | mongoose.ClientSession
+            | undefined;
 
-            // ----------------------------------------------------------------
-            // Customer
-            // ----------------------------------------------------------------
+        try {
+            const body =
+                req.body ?? {};
+
+            /**
+             * ---------------------------------------------------------------
+             * Customer
+             * ---------------------------------------------------------------
+             */
 
             const customerIdRaw =
                 body.customerId ??
@@ -154,56 +509,118 @@ router.post(
                     customerIdRaw.trim() &&
                     customerIdRaw.trim() !==
                     "CUST-WALKIN"
-                    ? customerIdRaw
-                        .trim()
+                    ? customerIdRaw.trim()
                     : undefined;
 
-            // ----------------------------------------------------------------
-            // Items
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Items
+             * ---------------------------------------------------------------
+             */
 
             const rawItems =
-                body.items;
+                Array.isArray(
+                    body.items
+                )
+                    ? body.items
+                    : [];
 
-            // ----------------------------------------------------------------
-            // Sale-level values
-            // ----------------------------------------------------------------
+            if (
+                rawItems.length === 0
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "At least one sale item is required.",
+                });
 
-            const discount =
+                return;
+            }
+
+            /**
+             * ---------------------------------------------------------------
+             * Sale-level values
+             * ---------------------------------------------------------------
+             */
+
+            const rawDiscount =
                 body.discount !==
                     undefined
-                    ? Number(
-                        body.discount
-                    )
+                    ? body.discount
                     : body.Discount !==
                         undefined
-                        ? Number(
-                            body.Discount
-                        )
+                        ? body.Discount
                         : 0;
 
-            const tax =
-                body.tax !== undefined
-                    ? Number(body.tax)
+            const rawTax =
+                body.tax !==
+                    undefined
+                    ? body.tax
                     : body.Tax !==
                         undefined
-                        ? Number(
-                            body.Tax
-                        )
+                        ? body.Tax
                         : 0;
 
-            const amountPaid =
+            const rawAmountPaid =
                 body.amountPaid !==
                     undefined
-                    ? Number(
-                        body.amountPaid
-                    )
+                    ? body.amountPaid
                     : body.AmountPaid !==
                         undefined
-                        ? Number(
-                            body.AmountPaid
-                        )
+                        ? body.AmountPaid
                         : 0;
+
+            const discount =
+                Number(rawDiscount);
+
+            const tax =
+                Number(rawTax);
+
+            const amountPaid =
+                Number(rawAmountPaid);
+
+            if (
+                !Number.isFinite(
+                    discount
+                ) ||
+                discount < 0
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "Discount must be a valid number.",
+                });
+
+                return;
+            }
+
+            if (
+                !Number.isFinite(tax) ||
+                tax < 0
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "Tax must be a valid number.",
+                });
+
+                return;
+            }
+
+            if (
+                !Number.isFinite(
+                    amountPaid
+                ) ||
+                amountPaid < 0
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "Amount paid must be a valid number.",
+                });
+
+                return;
+            }
 
             const paymentMethod =
                 String(
@@ -212,79 +629,129 @@ router.post(
                     "Cash"
                 ).trim() || "Cash";
 
-            // ----------------------------------------------------------------
-            // Normalize sale items
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Normalize sale items
+             * ---------------------------------------------------------------
+             */
 
-            const items = rawItems.map(
-                (
-                    item: {
-                        productId?: string;
-                        ProductID?: string;
+            const items =
+                rawItems.map(
+                    (
+                        item: any,
+                        index: number
+                    ) => {
+                        const productId =
+                            String(
+                                item?.productId ??
+                                item?.ProductID ??
+                                ""
+                            ).trim();
 
-                        quantity?: number;
-                        Quantity?: number;
-
-                        unitPrice?: number;
-                        UnitPrice?: number;
-
-                        discount?: number;
-                        Discount?: number;
-                    },
-                    index: number
-                ) => ({
-                    productId: String(
-                        item?.productId ??
-                        item?.ProductID ??
-                        ""
-                    ).trim(),
-
-                    quantity:
-                        item?.quantity !==
-                            undefined
-                            ? Number(
-                                item.quantity
-                            )
-                            : item?.Quantity !==
+                        const quantity =
+                            item?.quantity !==
                                 undefined
                                 ? Number(
-                                    item.Quantity
+                                    item.quantity
                                 )
-                                : 0,
+                                : item?.Quantity !==
+                                    undefined
+                                    ? Number(
+                                        item.Quantity
+                                    )
+                                    : 0;
 
-                    unitPrice:
-                        item?.unitPrice !==
-                            undefined
-                            ? Number(
-                                item.unitPrice
-                            )
-                            : item?.UnitPrice !==
+                        const unitPrice =
+                            item?.unitPrice !==
                                 undefined
                                 ? Number(
-                                    item.UnitPrice
+                                    item.unitPrice
                                 )
-                                : 0,
+                                : item?.UnitPrice !==
+                                    undefined
+                                    ? Number(
+                                        item.UnitPrice
+                                    )
+                                    : 0;
 
-                    discount:
-                        item?.discount !==
-                            undefined
-                            ? Number(
-                                item.discount
-                            )
-                            : item?.Discount !==
+                        const itemDiscount =
+                            item?.discount !==
                                 undefined
                                 ? Number(
-                                    item.Discount
+                                    item.discount
                                 )
-                                : 0,
+                                : item?.Discount !==
+                                    undefined
+                                    ? Number(
+                                        item.Discount
+                                    )
+                                    : 0;
 
-                    index,
-                })
-            );
+                        if (
+                            !productId
+                        ) {
+                            throw new Error(
+                                `Product is required for sale item ${index + 1}.`
+                            );
+                        }
 
-            // ----------------------------------------------------------------
-            // Resolve authenticated staff user
-            // ----------------------------------------------------------------
+                        if (
+                            !Number.isFinite(
+                                quantity
+                            ) ||
+                            quantity <= 0
+                        ) {
+                            throw new Error(
+                                `Quantity must be greater than zero for sale item ${index + 1}.`
+                            );
+                        }
+
+                        if (
+                            !Number.isFinite(
+                                unitPrice
+                            ) ||
+                            unitPrice < 0
+                        ) {
+                            throw new Error(
+                                `Unit price must be a valid number for sale item ${index + 1}.`
+                            );
+                        }
+
+                        if (
+                            !Number.isFinite(
+                                itemDiscount
+                            ) ||
+                            itemDiscount < 0
+                        ) {
+                            throw new Error(
+                                `Item discount must be a valid number for sale item ${index + 1}.`
+                            );
+                        }
+
+                        const totalPrice =
+                            Math.max(
+                                0,
+                                quantity *
+                                unitPrice -
+                                itemDiscount
+                            );
+
+                        return {
+                            productId,
+                            quantity,
+                            unitPrice,
+                            discount:
+                                itemDiscount,
+                            totalPrice,
+                        };
+                    }
+                );
+
+            /**
+             * ---------------------------------------------------------------
+             * Resolve authenticated staff user
+             * ---------------------------------------------------------------
+             */
 
             const authenticatedUserId =
                 String(
@@ -293,8 +760,6 @@ router.post(
                     ""
                 ).trim();
 
-            // Backward compatibility
-            // with older clients
             const bodyCreatedBy =
                 String(
                     body.createdBy ??
@@ -316,25 +781,17 @@ router.post(
                 return;
             }
 
-            // ----------------------------------------------------------------
-            // Find staff account
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Find staff account
+             * ---------------------------------------------------------------
+             */
 
             const staffUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            staffUserId,
-                    },
-
-                    select: {
-                        userId: true,
-                        fullName: true,
-                        email: true,
-                        role: true,
-                        status: true,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        staffUserId,
+                }).lean();
 
             if (!staffUser) {
                 res.status(400).json({
@@ -346,9 +803,11 @@ router.post(
                 return;
             }
 
-            // ----------------------------------------------------------------
-            // Verify active staff
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Verify active staff
+             * ---------------------------------------------------------------
+             */
 
             if (
                 String(
@@ -365,21 +824,19 @@ router.post(
                 return;
             }
 
-            // ----------------------------------------------------------------
-            // Verify customer
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Verify customer
+             * ---------------------------------------------------------------
+             */
 
             if (customerId) {
                 const customer =
-                    await prisma.customer.findUnique({
-                        where: {
+                    await Customer.findOne(
+                        {
                             customerId,
-                        },
-
-                        select: {
-                            customerId: true,
-                        },
-                    });
+                        }
+                    ).lean();
 
                 if (!customer) {
                     res.status(400).json({
@@ -392,68 +849,81 @@ router.post(
                 }
             }
 
-            // ----------------------------------------------------------------
-            // Transaction
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * MongoDB transaction
+             * ---------------------------------------------------------------
+             */
 
-            const result =
-                await prisma.$transaction(
-                    async (tx) => {
-                        let subtotal = 0;
+            session =
+                await mongoose.startSession();
 
-                        const saleItems: Array<{
-                            saleItemId: string;
-                            productId: string;
-                            quantity: number;
-                            unitPrice: number;
-                            discount: number;
-                            total: number;
-                        }> = [];
+            let createdSale: any;
 
-                        // ----------------------------------------------------
-                        // Validate products and calculate subtotal
-                        // ----------------------------------------------------
+            await session.withTransaction(
+                async () => {
+                    let subtotal = 0;
 
-                        for (
-                            const item of items
+                    const saleItemsToCreate: Array<{
+                        saleItemId: string;
+                        saleId: string;
+                        productId: string;
+                        quantity: number;
+                        unitPrice: number;
+                        totalPrice: number;
+                    }> = [];
+
+                    /**
+                     * -------------------------------------------------------
+                     * Validate products and calculate subtotal
+                     * -------------------------------------------------------
+                     */
+
+                    for (
+                        const item of items
+                    ) {
+                        const product =
+                            await Product.findOne(
+                                {
+                                    productId:
+                                        item.productId,
+                                }
+                            )
+                                .session(
+                                    session!
+                                )
+                                .lean();
+
+                        if (!product) {
+                            throw new Error(
+                                `Product not found: ${item.productId}`
+                            );
+                        }
+
+                        if (
+                            product.quantity <
+                            item.quantity
                         ) {
-                            const product =
-                                await tx.product.findUnique({
-                                    where: {
-                                        productId:
-                                            item.productId,
-                                    },
-                                });
+                            throw new Error(
+                                `Insufficient stock for ${product.productName}. Available: ${product.quantity}`
+                            );
+                        }
 
-                            if (!product) {
-                                throw new Error(
-                                    `Product not found: ${item.productId}`
-                                );
-                            }
+                        const totalPrice =
+                            item.totalPrice;
 
-                            if (
-                                product.quantity <
-                                item.quantity
-                            ) {
-                                throw new Error(
-                                    `Insufficient stock for ${product.productName}. Available: ${product.quantity}`
-                                );
-                            }
+                        subtotal +=
+                            totalPrice;
 
-                            const total =
-                                Math.max(
-                                    0,
-                                    item.quantity *
-                                    item.unitPrice -
-                                    item.discount
-                                );
-
-                            subtotal +=
-                                total;
-
-                            saleItems.push({
+                        saleItemsToCreate.push(
+                            {
                                 saleItemId:
-                                    generateId("SALEITEM"),
+                                    generateMongoId(
+                                        "SALEITEM"
+                                    ),
+
+                                saleId:
+                                    "",
 
                                 productId:
                                     product.productId,
@@ -464,164 +934,204 @@ router.post(
                                 unitPrice:
                                     item.unitPrice,
 
-                                discount:
-                                    item.discount,
+                                totalPrice,
+                            }
+                        );
+                    }
 
-                                total,
-                            });
-                        }
+                    /**
+                     * -------------------------------------------------------
+                     * Calculate totals
+                     * -------------------------------------------------------
+                     */
 
-                        // ----------------------------------------------------
-                        // Calculate totals
-                        // ----------------------------------------------------
+                    const totalAmount =
+                        Math.max(
+                            0,
+                            subtotal -
+                            discount +
+                            tax
+                        );
 
-                        const totalAmount =
-                            Math.max(
-                                0,
-                                subtotal -
-                                discount +
-                                tax
-                            );
-
-                        const balance =
-                            Math.max(
-                                totalAmount -
-                                amountPaid,
-                                0
-                            );
-
-                        const paymentStatus =
-                            amountPaid >=
-                                totalAmount
-                                ? "Paid"
-                                : amountPaid >
-                                    0
-                                    ? "Partially Paid"
-                                    : "Pending";
-
-                        // ----------------------------------------------------
-                        // Sale data
-                        // ----------------------------------------------------
-                        //
-                        // Kept as `any` because Prisma's generated Sale
-                        // create type treats createdBy as a relation field.
-                        // This matches the original working implementation.
-                        // ----------------------------------------------------
-
-                        const saleData: any = {
-                            saleId:
-                                generateId(
-                                    "SAL"
-                                ),
-
-                            invoiceNumber:
-                                generateInvoiceNumber(),
-
-                            subtotal,
-
-                            discount,
-
-                            tax,
-
-                            totalAmount,
-
+                    const balance =
+                        Math.max(
+                            totalAmount -
                             amountPaid,
+                            0
+                        );
 
-                            balance,
-
-                            paymentMethod,
-
-                            paymentStatus,
-
-                            saleStatus:
-                                "Completed",
-
-                            createdBy:
-                                staffUser.userId,
-
-                            items: {
-                                create:
-                                    saleItems,
-                            },
-                        };
-
-                        if (customerId) {
-                            saleData.customerId =
-                                customerId;
-                        }
-
-                        // ----------------------------------------------------
-                        // Create sale
-                        // ----------------------------------------------------
-
-                        const sale =
-                            await tx.sale.create({
-                                data:
-                                    saleData,
-
-                                include: {
-                                    items: true,
-                                },
-                            });
-
-                        // ----------------------------------------------------
-                        // Deduct stock
-                        // ----------------------------------------------------
-
-                        for (
-                            const item of
-                            saleItems
-                        ) {
-                            const product =
-                                await tx.product.findUnique({
-                                    where: {
-                                        productId:
-                                            item.productId,
-                                    },
-                                });
-
-                            if (!product) {
-                                throw new Error(
-                                    `Product not found: ${item.productId}`
-                                );
-                            }
-
-                            const previousQuantity =
-                                product.quantity;
-
-                            const newQuantity =
-                                previousQuantity -
-                                item.quantity;
-
-                            if (
-                                newQuantity <
+                    /**
+                     * Keep the working POS payment
+                     * status behavior.
+                     */
+                    const paymentStatus =
+                        amountPaid >=
+                            totalAmount
+                            ? "Paid"
+                            : amountPaid >
                                 0
-                            ) {
-                                throw new Error(
-                                    `Insufficient stock for ${product.productName}`
-                                );
-                            }
+                                ? "Partially Paid"
+                                : "Pending";
 
-                            await tx.product.update({
-                                where: {
+                    const saleId =
+                        generateMongoId(
+                            "SAL"
+                        );
+
+                    /**
+                     * Generate invoice number.
+                     *
+                     * Uses a timestamp plus random
+                     * component to avoid collisions.
+                     */
+                    const invoiceNumber =
+                        `INV-${Date.now()}-${Math.random()
+                            .toString(36)
+                            .substring(2, 6)
+                            .toUpperCase()}`;
+
+                    /**
+                     * -------------------------------------------------------
+                     * Create sale
+                     * -------------------------------------------------------
+                     */
+
+                    const sale =
+                        await Sale.create(
+                            [
+                                {
+                                    saleId,
+
+                                    invoiceNumber,
+
+                                    customerId,
+
+                                    saleDate:
+                                        new Date(),
+
+                                    subtotal,
+
+                                    discount,
+
+                                    tax,
+
+                                    totalAmount,
+
+                                    amountPaid,
+
+                                    balance,
+
+                                    paymentMethod,
+
+                                    paymentStatus,
+
+                                    saleStatus:
+                                        "Completed",
+
+                                    createdBy:
+                                        staffUser.userId,
+                                },
+                            ],
+                            {
+                                session,
+                            }
+                        );
+
+                    createdSale =
+                        sale[0];
+
+                    /**
+                     * Add sale ID to sale items.
+                     */
+                    for (
+                        const item of saleItemsToCreate
+                    ) {
+                        item.saleId =
+                            saleId;
+                    }
+
+                    /**
+                     * -------------------------------------------------------
+                     * Create sale items
+                     * -------------------------------------------------------
+                     */
+
+                    await SaleItem.insertMany(
+                        saleItemsToCreate,
+                        {
+                            session,
+                        }
+                    );
+
+                    /**
+                     * -------------------------------------------------------
+                     * Deduct stock
+                     * -------------------------------------------------------
+                     */
+
+                    for (
+                        const item of items
+                    ) {
+                        const product =
+                            await Product.findOne(
+                                {
                                     productId:
                                         item.productId,
-                                },
+                                }
+                            )
+                                .session(
+                                    session!
+                                );
 
-                                data: {
+                        if (!product) {
+                            throw new Error(
+                                `Product not found: ${item.productId}`
+                            );
+                        }
+
+                        const previousQuantity =
+                            product.quantity;
+
+                        const newQuantity =
+                            previousQuantity -
+                            item.quantity;
+
+                        if (
+                            newQuantity <
+                            0
+                        ) {
+                            throw new Error(
+                                `Insufficient stock for ${product.productName}`
+                            );
+                        }
+
+                        await Product.updateOne(
+                            {
+                                productId:
+                                    item.productId,
+                            },
+                            {
+                                $set: {
                                     quantity:
                                         newQuantity,
                                 },
-                            });
+                            },
+                            {
+                                session,
+                            }
+                        );
 
-                            // ------------------------------------------------
-                            // Stock movement
-                            // ------------------------------------------------
+                        /**
+                         * ---------------------------------------------------
+                         * Stock movement
+                         * ---------------------------------------------------
+                         */
 
-                            await tx.stockMovement.create({
-                                data: {
+                        await StockMovement.create(
+                            [
+                                {
                                     movementId:
-                                        generateId(
+                                        generateMongoId(
                                             "MOV"
                                         ),
 
@@ -639,32 +1149,169 @@ router.post(
                                     newQuantity,
 
                                     referenceId:
-                                        sale.saleId,
+                                        saleId,
 
                                     reason:
                                         "Product sold",
 
-                                    staffId:
+                                    createdBy:
                                         staffUser.userId,
-                                },
-                            });
-                        }
 
-                        return sale;
+                                    movementDate:
+                                        new Date(),
+                                },
+                            ],
+                            {
+                                session,
+                            }
+                        );
                     }
+                }
+            );
+
+            /**
+             * Close MongoDB session.
+             */
+            await session.endSession();
+            session =
+                undefined;
+
+            /**
+             * ---------------------------------------------------------------
+             * Load complete result
+             * ---------------------------------------------------------------
+             */
+
+            const resultSale =
+                await Sale.findOne({
+                    saleId:
+                        createdSale.saleId,
+                }).lean();
+
+            if (!resultSale) {
+                throw new Error(
+                    "Sale was created but could not be retrieved."
+                );
+            }
+
+            const [
+                resultCustomer,
+                resultCreator,
+                resultItems,
+            ] = await Promise.all([
+                resultSale.customerId
+                    ? Customer.findOne({
+                        customerId:
+                            resultSale.customerId,
+                    }).lean()
+                    : null,
+
+                User.findOne({
+                    userId:
+                        resultSale.createdBy,
+                }).lean(),
+
+                SaleItem.find({
+                    saleId:
+                        resultSale.saleId,
+                }).lean(),
+            ]);
+
+            /**
+             * Resolve products.
+             */
+            const resultProductIds = [
+                ...new Set(
+                    resultItems
+                        .map(
+                            (item: any) =>
+                                item.productId
+                        )
+                        .filter(Boolean)
+                ),
+            ];
+
+            const resultProducts =
+                resultProductIds.length
+                    ? await Product.find({
+                        productId: {
+                            $in:
+                                resultProductIds,
+                        },
+                    }).lean()
+                    : [];
+
+            const resultProductMap =
+                new Map<
+                    string,
+                    any
+                >(
+                    resultProducts.map(
+                        (product: any) =>
+                            [
+                                String(
+                                    product.productId
+                                ),
+                                cleanDocument(
+                                    product
+                                ),
+                            ] as [
+                                string,
+                                any
+                            ]
+                    )
                 );
 
-            // ----------------------------------------------------------------
-            // Console
-            // ----------------------------------------------------------------
+            const normalizedResultItems =
+                resultItems.map(
+                    (item: any) => ({
+                        ...cleanDocument(
+                            item
+                        ),
+
+                        product:
+                            resultProductMap.get(
+                                String(
+                                    item.productId
+                                )
+                            ) || null,
+                    })
+                );
+
+            const result = {
+                ...cleanDocument(
+                    resultSale
+                ),
+
+                customer:
+                    cleanDocument(
+                        resultCustomer
+                    ) || null,
+
+                creator:
+                    cleanDocument(
+                        resultCreator
+                    ) || null,
+
+                items:
+                    normalizedResultItems,
+            };
+
+            /**
+             * ---------------------------------------------------------------
+             * Console
+             * ---------------------------------------------------------------
+             */
 
             console.info(
                 `[SALES] Sale created: ${result.saleId} / ${result.invoiceNumber}`
             );
 
-            // ----------------------------------------------------------------
-            // Audit log
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Audit log
+             * ---------------------------------------------------------------
+             */
 
             try {
                 await createAuditLog({
@@ -691,18 +1338,22 @@ router.post(
                         undefined,
                 });
             } catch (auditError) {
-                // Audit failure must not
-                // turn a successful sale
-                // into a failed response.
+                /**
+                 * Audit failure must not
+                 * turn a successful sale
+                 * into a failed response.
+                 */
                 console.error(
                     "[SALES] AUDIT ERROR:",
                     auditError
                 );
             }
 
-            // ----------------------------------------------------------------
-            // Success response
-            // ----------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Success response
+             * ---------------------------------------------------------------
+             */
 
             res.status(201).json({
                 success: true,
@@ -711,6 +1362,28 @@ router.post(
                 data: result,
             });
         } catch (error) {
+            /**
+             * Make sure a session is closed
+             * if something fails.
+             */
+            if (session) {
+                try {
+                    if (
+                        session.inTransaction()
+                    ) {
+                        await session.abortTransaction();
+                    }
+                } catch {
+                    // Ignore abort errors.
+                }
+
+                try {
+                    await session.endSession();
+                } catch {
+                    // Ignore cleanup errors.
+                }
+            }
+
             console.error(
                 "CREATE SALE ERROR:",
                 error
@@ -721,8 +1394,10 @@ router.post(
     }
 );
 
-// ============================================================================
-// EXPORT ROUTER
-// ============================================================================
+/**
+ * ============================================================================
+ * EXPORT ROUTER
+ * ============================================================================
+ */
 
 export default router;

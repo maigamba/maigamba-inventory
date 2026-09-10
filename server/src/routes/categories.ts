@@ -1,7 +1,9 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Category from "../models/Category";
+import Product from "../models/Product";
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
+
 import {
     authenticate,
     requirePermission,
@@ -15,6 +17,8 @@ const router = Router();
 | CATEGORY ROUTES
 |--------------------------------------------------------------------------
 |
+| MongoDB / Mongoose version
+|
 | Permissions:
 |
 | categories.view
@@ -23,10 +27,28 @@ const router = Router();
 */
 
 /**
+ * Remove MongoDB internal fields from API responses.
+ */
+function cleanDocument(document: any) {
+    if (!document) {
+        return document;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
  * ============================================================================
  * GET ALL CATEGORIES
  * ============================================================================
  */
+
 router.get(
     "/",
     authenticate,
@@ -34,30 +56,29 @@ router.get(
     async (_req, res, next) => {
         try {
             const categories =
-                await prisma.category.findMany({
-                    orderBy: {
-                        createdAt: "desc",
-                    },
+                await Category.find({})
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
 
-                    include: {
-                        products: {
-                            select: {
-                                productId: true,
-                            },
-                        },
-                    },
-                });
+            /**
+             * MongoDB does not have Prisma's relational include.
+             *
+             * Count products belonging to each category.
+             */
+            const data = await Promise.all(
+                categories.map(async (category) => {
+                    const productCount =
+                        await Product.countDocuments({
+                            categoryId:
+                                category.categoryId,
+                        });
 
-            const data = categories.map(
-                (category) => ({
-                    ...category,
-
-                    productCount:
-                        category.products
-                            .length,
-
-                    products:
-                        undefined,
+                    return {
+                        ...cleanDocument(category),
+                        productCount,
+                    };
                 })
             );
 
@@ -76,6 +97,7 @@ router.get(
  * GET SINGLE CATEGORY
  * ============================================================================
  */
+
 router.get(
     "/:id",
     authenticate,
@@ -83,16 +105,10 @@ router.get(
     async (req, res, next) => {
         try {
             const category =
-                await prisma.category.findUnique({
-                    where: {
-                        categoryId:
-                            req.params.id,
-                    },
-
-                    include: {
-                        products: true,
-                    },
-                });
+                await Category.findOne({
+                    categoryId:
+                        req.params.id,
+                }).lean();
 
             if (!category) {
                 res.status(404).json({
@@ -104,9 +120,27 @@ router.get(
                 return;
             }
 
+            const products =
+                await Product.find({
+                    categoryId:
+                        category.categoryId,
+                })
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
+
             res.json({
                 success: true,
-                data: category,
+                data: {
+                    ...cleanDocument(
+                        category
+                    ),
+                    products:
+                        products.map(
+                            cleanDocument
+                        ),
+                },
             });
         } catch (error) {
             next(error);
@@ -119,6 +153,7 @@ router.get(
  * CREATE CATEGORY
  * ============================================================================
  */
+
 router.post(
     "/",
     authenticate,
@@ -135,11 +170,13 @@ router.post(
                 status = "Active",
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Validate name
-            // --------------------------------------------------------------
-
-            if (!name) {
+            /**
+             * Validate name.
+             */
+            if (
+                !name ||
+                !String(name).trim()
+            ) {
                 res.status(400).json({
                     success: false,
                     message:
@@ -149,19 +186,26 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Check duplicate category
-            // --------------------------------------------------------------
+            const normalizedName =
+                String(name).trim();
 
+            /**
+             * Check duplicate category.
+             *
+             * MongoDB regex with the i flag provides
+             * the same case-insensitive behavior.
+             */
             const existing =
-                await prisma.category.findFirst({
-                    where: {
-                        name: {
-                            equals: name,
-                            mode: "insensitive",
-                        },
+                await Category.findOne({
+                    name: {
+                        $regex:
+                            `^${normalizedName.replace(
+                                /[.*+?^${}()|[\]\\]/g,
+                                "\\$&"
+                            )}$`,
+                        $options: "i",
                     },
-                });
+                }).lean();
 
             if (existing) {
                 res.status(409).json({
@@ -173,36 +217,46 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Create category
-            // --------------------------------------------------------------
-
+            /**
+             * Create category.
+             */
             const category =
-                await prisma.category.create({
-                    data: {
-                        categoryId:
-                            generateId("CAT"),
+                await Category.create({
+                    categoryId:
+                        generateMongoId(
+                            "CAT"
+                        ),
 
-                        name,
+                    name:
+                        normalizedName,
 
-                        description,
+                    description:
+                        description !==
+                            undefined
+                            ? String(
+                                description
+                            ).trim()
+                            : undefined,
 
-                        status,
-                    },
+                    status:
+                        String(
+                            status || "Active"
+                        ).trim(),
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "CREATE",
+                    action:
+                        "CREATE",
 
-                    module: "Categories",
+                    module:
+                        "Categories",
 
                     recordId:
                         category.categoryId,
@@ -211,7 +265,10 @@ router.post(
                         `Category ${category.name} created. Status: ${category.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -224,7 +281,9 @@ router.post(
                 success: true,
                 message:
                     "Category created successfully",
-                data: category,
+                data: cleanDocument(
+                    category.toObject()
+                ),
             });
         } catch (error) {
             next(error);
@@ -237,6 +296,7 @@ router.post(
  * UPDATE CATEGORY
  * ============================================================================
  */
+
 router.put(
     "/:id",
     authenticate,
@@ -247,17 +307,14 @@ router.put(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find category
-            // --------------------------------------------------------------
-
+            /**
+             * Find category.
+             */
             const existing =
-                await prisma.category.findUnique({
-                    where: {
-                        categoryId:
-                            req.params.id,
-                    },
-                });
+                await Category.findOne({
+                    categoryId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -275,30 +332,33 @@ router.put(
                 status,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Check duplicate name when changing name
-            // --------------------------------------------------------------
-
+            /**
+             * Check duplicate name when changing name.
+             */
             if (
                 name !== undefined &&
-                name.trim() !== existing.name
+                String(name).trim() !==
+                existing.name
             ) {
-                const duplicate =
-                    await prisma.category.findFirst({
-                        where: {
-                            name: {
-                                equals:
-                                    name.trim(),
-                                mode:
-                                    "insensitive",
-                            },
+                const normalizedName =
+                    String(name).trim();
 
-                            NOT: {
-                                categoryId:
-                                    req.params.id,
-                            },
+                const duplicate =
+                    await Category.findOne({
+                        name: {
+                            $regex:
+                                `^${normalizedName.replace(
+                                    /[.*+?^${}()|[\]\\]/g,
+                                    "\\$&"
+                                )}$`,
+                            $options: "i",
                         },
-                    });
+
+                        categoryId: {
+                            $ne:
+                                req.params.id,
+                        },
+                    }).lean();
 
                 if (duplicate) {
                     res.status(409).json({
@@ -311,46 +371,75 @@ router.put(
                 }
             }
 
-            // --------------------------------------------------------------
-            // Update category
-            // --------------------------------------------------------------
+            /**
+             * Build update object.
+             */
+            const updateData: Record<
+                string,
+                unknown
+            > = {};
 
+            if (name !== undefined) {
+                updateData.name =
+                    String(name).trim();
+            }
+
+            if (
+                description !==
+                undefined
+            ) {
+                updateData.description =
+                    String(
+                        description
+                    ).trim();
+            }
+
+            if (status !== undefined) {
+                updateData.status =
+                    String(status).trim();
+            }
+
+            /**
+             * Update category.
+             */
             const category =
-                await prisma.category.update({
-                    where: {
+                await Category.findOneAndUpdate(
+                    {
                         categoryId:
                             req.params.id,
                     },
-
-                    data: {
-                        ...(name !== undefined && {
-                            name,
-                        }),
-
-                        ...(description !==
-                            undefined && {
-                            description,
-                        }),
-
-                        ...(status !==
-                            undefined && {
-                            status,
-                        }),
+                    {
+                        $set: updateData,
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!category) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Category not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "UPDATE",
+                    action:
+                        "UPDATE",
 
-                    module: "Categories",
+                    module:
+                        "Categories",
 
                     recordId:
                         category.categoryId,
@@ -359,7 +448,10 @@ router.put(
                         `Category ${category.name} updated. Status: ${category.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -372,7 +464,9 @@ router.put(
                 success: true,
                 message:
                     "Category updated successfully",
-                data: category,
+                data: cleanDocument(
+                    category
+                ),
             });
         } catch (error) {
             next(error);
@@ -385,6 +479,7 @@ router.put(
  * ARCHIVE CATEGORY
  * ============================================================================
  */
+
 router.patch(
     "/:id/archive",
     authenticate,
@@ -395,17 +490,14 @@ router.patch(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find category
-            // --------------------------------------------------------------
-
+            /**
+             * Find category.
+             */
             const existing =
-                await prisma.category.findUnique({
-                    where: {
-                        categoryId:
-                            req.params.id,
-                    },
-                });
+                await Category.findOne({
+                    categoryId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -417,34 +509,49 @@ router.patch(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Archive category
-            // --------------------------------------------------------------
-
+            /**
+             * Archive category.
+             */
             const category =
-                await prisma.category.update({
-                    where: {
+                await Category.findOneAndUpdate(
+                    {
                         categoryId:
                             req.params.id,
                     },
-
-                    data: {
-                        status: "Inactive",
+                    {
+                        $set: {
+                            status: "Inactive",
+                        },
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!category) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Category not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "ARCHIVE",
+                    action:
+                        "ARCHIVE",
 
-                    module: "Categories",
+                    module:
+                        "Categories",
 
                     recordId:
                         category.categoryId,
@@ -453,7 +560,10 @@ router.patch(
                         `Category ${category.name} archived. Previous status: ${existing.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -466,7 +576,9 @@ router.patch(
                 success: true,
                 message:
                     "Category archived successfully",
-                data: category,
+                data: cleanDocument(
+                    category
+                ),
             });
         } catch (error) {
             next(error);
@@ -482,6 +594,7 @@ router.patch(
  * categories.manage is intentionally used here because the permission
  * service defines category management as one combined permission.
  */
+
 router.delete(
     "/:id",
     authenticate,
@@ -492,17 +605,14 @@ router.delete(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find category
-            // --------------------------------------------------------------
-
+            /**
+             * Find category.
+             */
             const existing =
-                await prisma.category.findUnique({
-                    where: {
-                        categoryId:
-                            req.params.id,
-                    },
-                });
+                await Category.findOne({
+                    categoryId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -514,29 +624,27 @@ router.delete(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Delete category
-            // --------------------------------------------------------------
-
-            await prisma.category.delete({
-                where: {
-                    categoryId:
-                        req.params.id,
-                },
+            /**
+             * Delete category.
+             */
+            await Category.deleteOne({
+                categoryId:
+                    req.params.id,
             });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "DELETE",
+                    action:
+                        "DELETE",
 
-                    module: "Categories",
+                    module:
+                        "Categories",
 
                     recordId:
                         existing.categoryId,
@@ -545,7 +653,10 @@ router.delete(
                         `Category ${existing.name} deleted. Previous status: ${existing.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(

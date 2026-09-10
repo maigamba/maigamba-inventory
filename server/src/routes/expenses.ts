@@ -1,61 +1,28 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import { z } from "zod";
+
+import Expense from "../models/Expense";
+import User from "../models/User";
+
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
+
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
 } from "../middleware/auth";
+
 import { validate } from "../middleware/validate";
-import { z } from "zod";
 
 const router = Router();
-
-const textField = (max: number) =>
-    z.string().trim().max(max).optional().nullable();
-
-const createExpenseSchema = z.object({
-    body: z.object({
-        expenseId: z.string().trim().max(100).optional(),
-        expenseCategory: z.string().trim().min(1, "Expense category is required").max(100),
-        description: textField(500),
-        amount: z.coerce.number().finite().min(0).max(100000000000),
-        paymentMethod: textField(50),
-        expenseDate: z.string().trim().max(50).optional().nullable(),
-        recordedBy: textField(100),
-        receipt: textField(255),
-        notes: textField(1000),
-    }),
-});
-
-const updateExpenseSchema = z.object({
-    params: z.object({
-        id: z.string().trim().min(1, "Expense ID is required").max(100),
-    }),
-    body: z.object({
-        expenseCategory: z.string().trim().min(1).max(100).optional(),
-        description: textField(500),
-        amount: z.coerce.number().finite().min(0).max(100000000000).optional(),
-        paymentMethod: textField(50),
-        expenseDate: z.string().trim().max(50).optional().nullable(),
-        recordedBy: textField(100),
-        receipt: textField(255),
-        notes: textField(1000),
-    }),
-});
-
-const expenseIdSchema = z.object({
-    params: z.object({
-        id: z.string().trim().min(1, "Expense ID is required").max(100),
-    }),
-});
-
 
 /*
 |--------------------------------------------------------------------------
 | EXPENSE ROUTES
 |--------------------------------------------------------------------------
+|
+| MongoDB / Mongoose version
 |
 | Permissions:
 |
@@ -66,10 +33,191 @@ const expenseIdSchema = z.object({
 |
 */
 
+/**
+ * ============================================================================
+ * VALIDATION
+ * ============================================================================
+ */
 
-// ============================================================================
-// GET ALL EXPENSES
-// ============================================================================
+const textField = (max: number) =>
+    z
+        .string()
+        .trim()
+        .max(max)
+        .optional()
+        .nullable();
+
+const createExpenseSchema = z.object({
+    body: z.object({
+        expenseId: z
+            .string()
+            .trim()
+            .max(100)
+            .optional(),
+
+        expenseCategory: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Expense category is required"
+            )
+            .max(100),
+
+        description:
+            textField(500),
+
+        amount: z.coerce
+            .number()
+            .finite()
+            .min(0)
+            .max(100000000000),
+
+        paymentMethod:
+            textField(50),
+
+        expenseDate: z
+            .string()
+            .trim()
+            .max(50)
+            .optional()
+            .nullable(),
+
+        recordedBy:
+            textField(100),
+
+        receipt:
+            textField(255),
+
+        notes:
+            textField(1000),
+    }),
+});
+
+const updateExpenseSchema = z.object({
+    params: z.object({
+        id: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Expense ID is required"
+            )
+            .max(100),
+    }),
+
+    body: z.object({
+        expenseCategory: z
+            .string()
+            .trim()
+            .min(1)
+            .max(100)
+            .optional(),
+
+        description:
+            textField(500),
+
+        amount: z.coerce
+            .number()
+            .finite()
+            .min(0)
+            .max(100000000000)
+            .optional(),
+
+        paymentMethod:
+            textField(50),
+
+        expenseDate: z
+            .string()
+            .trim()
+            .max(50)
+            .optional()
+            .nullable(),
+
+        recordedBy:
+            textField(100),
+
+        receipt:
+            textField(255),
+
+        notes:
+            textField(1000),
+    }),
+});
+
+const expenseIdSchema = z.object({
+    params: z.object({
+        id: z
+            .string()
+            .trim()
+            .min(
+                1,
+                "Expense ID is required"
+            )
+            .max(100),
+    }),
+});
+
+/**
+ * ============================================================================
+ * HELPERS
+ * ============================================================================
+ */
+
+/**
+ * Remove MongoDB internal fields.
+ */
+function cleanDocument(document: any) {
+    if (!document) {
+        return document;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
+ * Parse and validate an expense date.
+ */
+function parseExpenseDate(
+    value: unknown
+): Date {
+    if (
+        value === undefined ||
+        value === null ||
+        String(value).trim() === ""
+    ) {
+        return new Date();
+    }
+
+    const parsedDate =
+        new Date(
+            String(value).trim()
+        );
+
+    if (
+        Number.isNaN(
+            parsedDate.getTime()
+        )
+    ) {
+        throw new Error(
+            "expenseDate must be a valid date"
+        );
+    }
+
+    return parsedDate;
+}
+
+/**
+ * ============================================================================
+ * GET ALL EXPENSES
+ * ============================================================================
+ */
 
 router.get(
     "/",
@@ -78,15 +226,17 @@ router.get(
     async (_req, res, next) => {
         try {
             const expenses =
-                await prisma.expense.findMany({
-                    orderBy: {
-                        expenseDate: "desc",
-                    },
-                });
+                await Expense.find({})
+                    .sort({
+                        expenseDate: -1,
+                    })
+                    .lean();
 
             res.json({
                 success: true,
-                data: expenses,
+                data: expenses.map(
+                    cleanDocument
+                ),
             });
         } catch (error) {
             console.error(
@@ -99,10 +249,11 @@ router.get(
     }
 );
 
-
-// ============================================================================
-// CREATE EXPENSE
-// ============================================================================
+/**
+ * ============================================================================
+ * CREATE EXPENSE
+ * ============================================================================
+ */
 
 router.post(
     "/",
@@ -122,14 +273,15 @@ router.post(
                 amount,
                 paymentMethod,
                 expenseDate,
-                recordedBy,
                 receipt,
                 notes,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Validate required fields
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Validate required fields
+             * ---------------------------------------------------------------
+             */
 
             if (
                 !expenseCategory ||
@@ -144,9 +296,11 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Validate amount
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Validate amount
+             * ---------------------------------------------------------------
+             */
 
             const numericAmount =
                 Number(amount);
@@ -166,9 +320,11 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Resolve authenticated user
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Resolve authenticated user
+             * ---------------------------------------------------------------
+             */
 
             const authenticatedUserId =
                 String(
@@ -178,55 +334,159 @@ router.post(
                 ).trim();
 
             const finalRecordedBy =
-                authenticatedUserId || null;
+                authenticatedUserId ||
+                undefined;
 
-            // --------------------------------------------------------------
-            // Create expense
-            // --------------------------------------------------------------
-
-            const expense =
-                await prisma.expense.create({
-                    data: {
-                        expenseId:
-                            expenseId ||
-                            generateId("EXP"),
-
-                        expenseCategory,
-
-                        description:
-                            description ||
-                            null,
-
-                        amount:
-                            numericAmount,
-
-                        paymentMethod:
-                            paymentMethod ||
-                            null,
-
-                        expenseDate:
-                            expenseDate
-                                ? new Date(
-                                    expenseDate
-                                )
-                                : new Date(),
-
-                        recordedBy:
+            /**
+             * If an authenticated user exists,
+             * verify that the account exists.
+             */
+            if (
+                finalRecordedBy
+            ) {
+                const user =
+                    await User.findOne({
+                        userId:
                             finalRecordedBy,
+                    }).lean();
 
-                        receipt:
-                            receipt ||
-                            null,
+                if (!user) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            "The authenticated user was not found in the database.",
+                    });
 
-                        notes:
-                            notes ||
-                            null,
-                    },
+                    return;
+                }
+            }
+
+            /**
+             * ---------------------------------------------------------------
+             * Parse expense date
+             * ---------------------------------------------------------------
+             */
+
+            let parsedExpenseDate:
+                Date;
+
+            try {
+                parsedExpenseDate =
+                    parseExpenseDate(
+                        expenseDate
+                    );
+            } catch {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "expenseDate must be a valid date",
                 });
 
-            // --------------------------------------------------------------
-            // Audit log
-            // --------------------------------------------------------------
+                return;
+            }
+
+            /**
+             * ---------------------------------------------------------------
+             * Create expense
+             * ---------------------------------------------------------------
+             */
+
+            const finalExpenseId =
+                expenseId &&
+                    String(
+                        expenseId
+                    ).trim()
+                    ? String(
+                        expenseId
+                    ).trim()
+                    : generateMongoId(
+                        "EXP"
+                    );
+
+            /**
+             * Prevent duplicate expense IDs.
+             */
+            const existingExpense =
+                await Expense.findOne({
+                    expenseId:
+                        finalExpenseId,
+                }).lean();
+
+            if (
+                existingExpense
+            ) {
+                res.status(409).json({
+                    success: false,
+                    message:
+                        "An expense with this ID already exists.",
+                });
+
+                return;
+            }
+
+            const expense =
+                await Expense.create({
+                    expenseId:
+                        finalExpenseId,
+
+                    expenseCategory:
+                        String(
+                            expenseCategory
+                        ).trim(),
+
+                    description:
+                        description !==
+                            undefined &&
+                            description !==
+                            null
+                            ? String(
+                                description
+                            ).trim()
+                            : undefined,
+
+                    amount:
+                        numericAmount,
+
+                    paymentMethod:
+                        paymentMethod !==
+                            undefined &&
+                            paymentMethod !==
+                            null
+                            ? String(
+                                paymentMethod
+                            ).trim()
+                            : undefined,
+
+                    expenseDate:
+                        parsedExpenseDate,
+
+                    recordedBy:
+                        finalRecordedBy,
+
+                    receipt:
+                        receipt !==
+                            undefined &&
+                            receipt !== null
+                            ? String(
+                                receipt
+                            ).trim()
+                            : undefined,
+
+                    notes:
+                        notes !==
+                            undefined &&
+                            notes !== null
+                            ? String(
+                                notes
+                            ).trim()
+                            : undefined,
+                });
+
+            /**
+             * ---------------------------------------------------------------
+             * Audit log
+             * ---------------------------------------------------------------
+             */
 
             try {
                 await createAuditLog({
@@ -260,9 +520,13 @@ router.post(
 
             res.status(201).json({
                 success: true,
+
                 message:
                     "Expense created successfully",
-                data: expense,
+
+                data: cleanDocument(
+                    expense.toObject()
+                ),
             });
         } catch (error) {
             console.error(
@@ -275,10 +539,11 @@ router.post(
     }
 );
 
-
-// ============================================================================
-// UPDATE EXPENSE
-// ============================================================================
+/**
+ * ============================================================================
+ * UPDATE EXPENSE
+ * ============================================================================
+ */
 
 router.put(
     "/:id",
@@ -291,17 +556,17 @@ router.put(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing expense
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Find existing expense
+             * ---------------------------------------------------------------
+             */
 
             const existing =
-                await prisma.expense.findUnique({
-                    where: {
-                        expenseId:
-                            req.params.id,
-                    },
-                });
+                await Expense.findOne({
+                    expenseId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -319,23 +584,43 @@ router.put(
                 amount,
                 paymentMethod,
                 expenseDate,
-                recordedBy,
                 receipt,
                 notes,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Build update object
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Build update object
+             * ---------------------------------------------------------------
+             */
 
-            const data: any = {};
+            const data: Record<
+                string,
+                unknown
+            > = {};
 
             if (
                 expenseCategory !==
                 undefined
             ) {
+                if (
+                    !String(
+                        expenseCategory
+                    ).trim()
+                ) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            "Expense category is required",
+                    });
+
+                    return;
+                }
+
                 data.expenseCategory =
-                    expenseCategory;
+                    String(
+                        expenseCategory
+                    ).trim();
             }
 
             if (
@@ -343,7 +628,11 @@ router.put(
                 undefined
             ) {
                 data.description =
-                    description;
+                    description === null
+                        ? undefined
+                        : String(
+                            description
+                        ).trim();
             }
 
             if (
@@ -377,23 +666,23 @@ router.put(
                 undefined
             ) {
                 data.paymentMethod =
-                    paymentMethod;
+                    paymentMethod === null
+                        ? undefined
+                        : String(
+                            paymentMethod
+                        ).trim();
             }
 
             if (
                 expenseDate !==
                 undefined
             ) {
-                const parsedDate =
-                    new Date(
-                        expenseDate
-                    );
-
-                if (
-                    Number.isNaN(
-                        parsedDate.getTime()
-                    )
-                ) {
+                try {
+                    data.expenseDate =
+                        parseExpenseDate(
+                            expenseDate
+                        );
+                } catch {
                     res.status(400).json({
                         success: false,
                         message:
@@ -402,15 +691,20 @@ router.put(
 
                     return;
                 }
-
-                data.expenseDate =
-                    parsedDate;
             }
 
-            // Do not allow the client to change the recorded-by identity.
-            // The authenticated user remains authoritative.
-            if (req.user?.userId) {
-                data.recordedBy = req.user.userId;
+            /**
+             * Do not allow the client to change
+             * the recorded-by identity.
+             *
+             * The authenticated user remains
+             * authoritative.
+             */
+            if (
+                req.user?.userId
+            ) {
+                data.recordedBy =
+                    req.user.userId;
             }
 
             if (
@@ -418,7 +712,11 @@ router.put(
                 undefined
             ) {
                 data.receipt =
-                    receipt;
+                    receipt === null
+                        ? undefined
+                        : String(
+                            receipt
+                        ).trim();
             }
 
             if (
@@ -426,26 +724,49 @@ router.put(
                 undefined
             ) {
                 data.notes =
-                    notes;
+                    notes === null
+                        ? undefined
+                        : String(
+                            notes
+                        ).trim();
             }
 
-            // --------------------------------------------------------------
-            // Update expense
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Update expense
+             * ---------------------------------------------------------------
+             */
 
             const expense =
-                await prisma.expense.update({
-                    where: {
+                await Expense.findOneAndUpdate(
+                    {
                         expenseId:
                             req.params.id,
                     },
+                    {
+                        $set: data,
+                    },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
 
-                    data,
+            if (!expense) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Expense not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit log
-            // --------------------------------------------------------------
+                return;
+            }
+
+            /**
+             * ---------------------------------------------------------------
+             * Audit log
+             * ---------------------------------------------------------------
+             */
 
             try {
                 await createAuditLog({
@@ -479,9 +800,13 @@ router.put(
 
             res.json({
                 success: true,
+
                 message:
                     "Expense updated successfully",
-                data: expense,
+
+                data: cleanDocument(
+                    expense
+                ),
             });
         } catch (error) {
             console.error(
@@ -494,10 +819,11 @@ router.put(
     }
 );
 
-
-// ============================================================================
-// DELETE EXPENSE
-// ============================================================================
+/**
+ * ============================================================================
+ * DELETE EXPENSE
+ * ============================================================================
+ */
 
 router.delete(
     "/:id",
@@ -510,17 +836,17 @@ router.delete(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing expense
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Find existing expense
+             * ---------------------------------------------------------------
+             */
 
             const existing =
-                await prisma.expense.findUnique({
-                    where: {
-                        expenseId:
-                            req.params.id,
-                    },
-                });
+                await Expense.findOne({
+                    expenseId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -532,20 +858,22 @@ router.delete(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Delete expense
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Delete expense
+             * ---------------------------------------------------------------
+             */
 
-            await prisma.expense.delete({
-                where: {
-                    expenseId:
-                        req.params.id,
-                },
+            await Expense.deleteOne({
+                expenseId:
+                    req.params.id,
             });
 
-            // --------------------------------------------------------------
-            // Audit log
-            // --------------------------------------------------------------
+            /**
+             * ---------------------------------------------------------------
+             * Audit log
+             * ---------------------------------------------------------------
+             */
 
             try {
                 await createAuditLog({
@@ -579,6 +907,7 @@ router.delete(
 
             res.json({
                 success: true,
+
                 message:
                     "Expense deleted successfully",
             });
@@ -593,9 +922,10 @@ router.delete(
     }
 );
 
-
-// ============================================================================
-// EXPORT ROUTER
-// ============================================================================
+/**
+ * ============================================================================
+ * EXPORT ROUTER
+ * ============================================================================
+ */
 
 export default router;

@@ -1,5 +1,7 @@
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Product from "../models/Product";
+import StockMovement from "../models/StockMovement";
+import User from "../models/User";
+import { generateMongoId } from "../utils/mongoId";
 
 type AdjustStockInput = {
     ProductID?: string;
@@ -49,13 +51,12 @@ export async function adjustStock(
         );
     }
 
-    const adjustmentType =
-        String(
-            stockData?.adjustmentType ??
-            (type === "OUT"
-                ? "ADJUSTMENT_OUT"
-                : "ADJUSTMENT_IN")
-        ).trim();
+    const adjustmentType = String(
+        stockData?.adjustmentType ??
+        (type === "OUT"
+            ? "ADJUSTMENT_OUT"
+            : "ADJUSTMENT_IN")
+    ).trim();
 
     const reason =
         String(
@@ -75,16 +76,16 @@ export async function adjustStock(
         );
     }
 
-    const staff = await prisma.user.findUnique({
-        where: {
-            userId: staffId,
-        },
-        select: {
-            userId: true,
-            fullName: true,
-            status: true,
-        },
-    });
+    /*
+     * Find the staff account in MongoDB.
+     */
+    const staff = await User.findOne({
+        userId: staffId,
+    })
+        .select(
+            "userId fullName status"
+        )
+        .lean();
 
     if (!staff) {
         throw new Error(
@@ -101,69 +102,116 @@ export async function adjustStock(
         );
     }
 
-    return prisma.$transaction(async (tx) => {
-        const product =
-            await tx.product.findUnique({
-                where: {
-                    productId,
-                },
-            });
+    /*
+     * MongoDB transaction.
+     *
+     * The product quantity update and
+     * stock movement creation happen together.
+     */
+    const mongoose = (
+        await import("mongoose")
+    ).default;
 
-        if (!product) {
-            throw new Error(
-                `Product not found: ${productId}`
-            );
-        }
+    const session =
+        await mongoose.startSession();
 
-        const previousQuantity =
-            product.quantity;
+    try {
+        let updatedProduct: any = null;
 
-        let newQuantity: number;
+        await session.withTransaction(
+            async () => {
+                const product =
+                    await Product.findOne({
+                        productId,
+                    }).session(session);
 
-        if (type === "IN") {
-            newQuantity =
-                previousQuantity + quantity;
-        } else {
-            newQuantity =
-                previousQuantity - quantity;
+                if (!product) {
+                    throw new Error(
+                        `Product not found: ${productId}`
+                    );
+                }
 
-            if (newQuantity < 0) {
-                throw new Error(
-                    `Insufficient stock for ${product.productName}. Available: ${previousQuantity}`
+                const previousQuantity =
+                    Number(
+                        product.quantity
+                    );
+
+                let newQuantity: number;
+
+                if (type === "IN") {
+                    newQuantity =
+                        previousQuantity +
+                        quantity;
+                } else {
+                    newQuantity =
+                        previousQuantity -
+                        quantity;
+
+                    if (newQuantity < 0) {
+                        throw new Error(
+                            `Insufficient stock for ${product.productName}. Available: ${previousQuantity}`
+                        );
+                    }
+                }
+
+                product.quantity =
+                    newQuantity;
+
+                await product.save({
+                    session,
+                });
+
+                /*
+                 * Create stock movement.
+                 *
+                 * MongoDB model uses createdBy,
+                 * while the API historically used staffId.
+                 */
+                await StockMovement.create(
+                    [
+                        {
+                            movementId:
+                                generateMongoId(
+                                    "MOV"
+                                ),
+
+                            productId,
+
+                            movementType:
+                                adjustmentType,
+
+                            quantity,
+
+                            previousQuantity,
+
+                            newQuantity,
+
+                            referenceId:
+                                `ADJ-${Date.now()}`,
+
+                            reason,
+
+                            createdBy:
+                                staff.userId,
+
+                            movementDate:
+                                new Date(),
+                        },
+                    ],
+                    {
+                        session,
+                    }
                 );
+
+                updatedProduct =
+                    product.toObject();
             }
-        }
-
-        const updatedProduct =
-            await tx.product.update({
-                where: {
-                    productId,
-                },
-                data: {
-                    quantity: newQuantity,
-                },
-            });
-
-        await tx.stockMovement.create({
-            data: {
-                movementId:
-                    generateId("MOV"),
-                productId,
-                movementType:
-                    adjustmentType,
-                quantity,
-                previousQuantity,
-                newQuantity,
-                referenceId:
-                    `ADJ-${Date.now()}`,
-                reason,
-                staffId:
-                    staff.userId,
-            },
-        });
+        );
 
         return updatedProduct;
-    });
+    } finally {
+        await session.endSession();
+    }
 }
 
 export default adjustStock;

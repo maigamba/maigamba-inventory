@@ -1,8 +1,19 @@
-import { prisma } from "../config/database";
+import Product from "../models/Product";
+import Customer from "../models/Customer";
+import Sale from "../models/Sale";
+import Purchase from "../models/Purchase";
+import Expense from "../models/Expense";
 
 export async function getDashboard() {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
+
+    /*
+     * Fetch the core dashboard data in parallel.
+     *
+     * MongoDB replaces the previous Prisma
+     * count/findMany/aggregate operations.
+     */
 
     const [
         activeProducts,
@@ -13,123 +24,242 @@ export async function getDashboard() {
         totalPurchases,
         totalExpenses,
     ] = await Promise.all([
-        // Active products
-        prisma.product.count({
-            where: {
-                status: "Active",
-            },
+        /*
+         * Active products
+         */
+        Product.countDocuments({
+            status: "Active",
         }),
 
-        // Active products used for stock calculations
-        prisma.product.findMany({
-            where: {
-                status: "Active",
-            },
-            select: {
-                quantity: true,
-                reorderLevel: true,
-                costPrice: true,
-            },
-        }),
+        /*
+         * Active products used for:
+         * - low-stock calculation
+         * - inventory value
+         */
+        Product.find({
+            status: "Active",
+        })
+            .select(
+                "quantity reorderLevel costPrice"
+            )
+            .lean(),
 
-        // Total customers
-        prisma.customer.count(),
+        /*
+         * Total customers
+         */
+        Customer.countDocuments({}),
 
-        // Today's completed sales
-        prisma.sale.aggregate({
-            where: {
-                saleDate: {
-                    gte: startOfToday,
+        /*
+         * Today's completed sales
+         */
+        Sale.aggregate([
+            {
+                $match: {
+                    saleDate: {
+                        $gte: startOfToday,
+                    },
+
+                    saleStatus:
+                        "Completed",
                 },
-                saleStatus: "Completed",
             },
-            _sum: {
-                totalAmount: true,
-            },
-        }),
 
-        // All completed sales / revenue
-        prisma.sale.aggregate({
-            where: {
-                saleStatus: "Completed",
-            },
-            _sum: {
-                totalAmount: true,
-            },
-        }),
+            {
+                $group: {
+                    _id: null,
 
-        // All completed purchases
-        prisma.purchase.aggregate({
-            where: {
-                purchaseStatus: "Completed",
+                    totalAmount: {
+                        $sum: "$totalAmount",
+                    },
+                },
             },
-            _sum: {
-                totalAmount: true,
-            },
-        }),
+        ]),
 
-        // All expenses
-        prisma.expense.aggregate({
-            _sum: {
-                amount: true,
+        /*
+         * All completed sales / revenue
+         */
+        Sale.aggregate([
+            {
+                $match: {
+                    saleStatus:
+                        "Completed",
+                },
             },
-        }),
+
+            {
+                $group: {
+                    _id: null,
+
+                    totalAmount: {
+                        $sum: "$totalAmount",
+                    },
+                },
+            },
+        ]),
+
+        /*
+         * All completed purchases
+         */
+        Purchase.aggregate([
+            {
+                $match: {
+                    purchaseStatus:
+                        "Completed",
+                },
+            },
+
+            {
+                $group: {
+                    _id: null,
+
+                    totalAmount: {
+                        $sum: "$totalAmount",
+                    },
+                },
+            },
+        ]),
+
+        /*
+         * All expenses
+         */
+        Expense.aggregate([
+            {
+                $group: {
+                    _id: null,
+
+                    amount: {
+                        $sum: "$amount",
+                    },
+                },
+            },
+        ]),
     ]);
 
-    // Calculate low-stock products
-    const lowStock = allProducts.filter(
-        (product) =>
-            product.quantity <= product.reorderLevel
-    ).length;
+    /*
+     * Calculate low-stock products.
+     *
+     * A product is considered low stock when
+     * quantity <= reorderLevel.
+     */
 
-    // Calculate total inventory value
-    const stockValue = allProducts.reduce(
-        (total, product) =>
-            total +
-            Number(product.costPrice) *
-            Number(product.quantity),
-        0
-    );
+    const lowStock =
+        allProducts.filter(
+            (product) =>
+                Number(
+                    product.quantity
+                ) <=
+                Number(
+                    product.reorderLevel
+                )
+        ).length;
 
-    // Convert database Decimal/null values to numbers
+    /*
+     * Calculate total inventory value.
+     *
+     * Inventory value =
+     * cost price × current quantity
+     */
+
+    const stockValue =
+        allProducts.reduce(
+            (total, product) =>
+                total +
+                Number(
+                    product.costPrice
+                ) *
+                Number(
+                    product.quantity
+                ),
+            0
+        );
+
+    /*
+     * MongoDB aggregation returns
+     * an array, unlike Prisma's _sum object.
+     */
+
     const todaySalesAmount =
-        Number(todaySales._sum.totalAmount ?? 0);
+        Number(
+            todaySales?.[0]
+                ?.totalAmount ?? 0
+        );
 
     const revenue =
-        Number(totalRevenue._sum.totalAmount ?? 0);
+        Number(
+            totalRevenue?.[0]
+                ?.totalAmount ?? 0
+        );
 
     const purchases =
-        Number(totalPurchases._sum.totalAmount ?? 0);
+        Number(
+            totalPurchases?.[0]
+                ?.totalAmount ?? 0
+        );
 
     const expenses =
-        Number(totalExpenses._sum.amount ?? 0);
+        Number(
+            totalExpenses?.[0]
+                ?.amount ?? 0
+        );
 
-    // Revenue - purchases - expenses
+    /*
+     * Revenue - purchases - expenses
+     */
+
     const estimatedPosition =
-        revenue - purchases - expenses;
+        revenue -
+        purchases -
+        expenses;
+
+    /*
+     * Preserve the existing dashboard
+     * response structure so the frontend
+     * does not need to be changed.
+     */
 
     return {
-        // Product information
-        products: activeProducts,
+        /*
+         * Product information
+         */
+        products:
+            activeProducts,
+
         activeProducts,
+
         lowStock,
+
         stockValue,
 
-        // Customer information
-        customers: totalCustomers,
+        /*
+         * Customer information
+         */
+        customers:
+            totalCustomers,
 
-        // Sales / revenue
-        todaySales: todaySalesAmount,
+        /*
+         * Sales / revenue
+         */
+        todaySales:
+            todaySalesAmount,
+
         revenue,
 
-        // Purchases
+        /*
+         * Purchases
+         */
         purchases,
 
-        // Expenses
+        /*
+         * Expenses
+         */
         expenses,
 
-        // Financial position
+        /*
+         * Financial position
+         */
         estimatedPosition,
-        estimatedGrossPosition: estimatedPosition,
+
+        estimatedGrossPosition:
+            estimatedPosition,
     };
 }

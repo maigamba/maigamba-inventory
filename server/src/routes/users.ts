@@ -1,7 +1,11 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+
+import User from "../models/User";
+import Permission from "../models/Permission";
+import UserPermission from "../models/UserPermission";
+
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
 
 import {
@@ -10,12 +14,7 @@ import {
     AuthenticatedRequest,
 } from "../middleware/auth";
 
-import {
-    grantUserPermission,
-    revokeUserPermission,
-    setUserPermissions,
-    PERMISSIONS,
-} from "../services/permission.service";
+import { PERMISSIONS } from "../services/permission.service";
 
 import { validate } from "../middleware/validate";
 
@@ -46,21 +45,26 @@ const router = Router();
 
 /*
 |--------------------------------------------------------------------------
-| COMMON USER SELECT
+| COMMON USER RESPONSE
 |--------------------------------------------------------------------------
 */
 
-const userSelect = {
-    id: true,
-    userId: true,
-    fullName: true,
-    email: true,
-    phone: true,
-    role: true,
-    status: true,
-    createdAt: true,
-    updatedAt: true,
-};
+function formatUser(user: any) {
+    if (!user) {
+        return user;
+    }
+
+    return {
+        userId: user.userId,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone ?? null,
+        role: user.role,
+        status: user.status,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+    };
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -74,20 +78,25 @@ router.get(
     requirePermission("users.view"),
     async (_req, res, next) => {
         try {
-            const users =
-                await prisma.user.findMany({
-                    select: userSelect,
-
-                    orderBy: {
-                        createdAt: "desc",
-                    },
-                });
+            const users = await User.find({})
+                .select(
+                    "userId fullName email phone role status createdAt updatedAt"
+                )
+                .sort({
+                    createdAt: -1,
+                })
+                .lean();
 
             res.json({
                 success: true,
-                data: users,
+                data: users.map(formatUser),
             });
         } catch (error) {
+            console.error(
+                "[USERS] FETCH ERROR:",
+                error
+            );
+
             next(error);
         }
     }
@@ -106,14 +115,13 @@ router.get(
     validate(userIdSchema),
     async (req, res, next) => {
         try {
-            const user =
-                await prisma.user.findUnique({
-                    where: {
-                        userId: req.params.id,
-                    },
-
-                    select: userSelect,
-                });
+            const user = await User.findOne({
+                userId: req.params.id,
+            })
+                .select(
+                    "userId fullName email phone role status createdAt updatedAt"
+                )
+                .lean();
 
             if (!user) {
                 res.status(404).json({
@@ -126,7 +134,7 @@ router.get(
 
             res.json({
                 success: true,
-                data: user,
+                data: formatUser(user),
             });
         } catch (error) {
             next(error);
@@ -166,17 +174,13 @@ router.post(
                     .toLowerCase();
 
             /*
-            --------------------------------------------------------------
-            Check existing user
-            --------------------------------------------------------------
-            */
+             * Check existing user.
+             */
 
             const existingUser =
-                await prisma.user.findUnique({
-                    where: {
-                        email: normalizedEmail,
-                    },
-                });
+                await User.findOne({
+                    email: normalizedEmail,
+                }).lean();
 
             if (existingUser) {
                 res.status(409).json({
@@ -189,10 +193,9 @@ router.post(
             }
 
             /*
-            --------------------------------------------------------------
-            Prevent non-admin users from creating Admin accounts
-            --------------------------------------------------------------
-            */
+             * Prevent non-admin users
+             * from creating Admin accounts.
+             */
 
             if (
                 role === "Admin" &&
@@ -208,10 +211,8 @@ router.post(
             }
 
             /*
-            --------------------------------------------------------------
-            Hash password
-            --------------------------------------------------------------
-            */
+             * Hash password.
+             */
 
             const passwordHash =
                 await bcrypt.hash(
@@ -220,45 +221,46 @@ router.post(
                 );
 
             /*
-            --------------------------------------------------------------
-            Create user
-            --------------------------------------------------------------
-            */
+             * Create user.
+             */
 
             const user =
-                await prisma.user.create({
-                    data: {
-                        userId:
-                            generateId("USR"),
+                await User.create({
+                    userId:
+                        generateMongoId(
+                            "USR"
+                        ),
 
-                        fullName:
-                            fullName.trim(),
+                    fullName:
+                        String(
+                            fullName
+                        ).trim(),
 
-                        email:
-                            normalizedEmail,
+                    email:
+                        normalizedEmail,
 
-                        phone:
-                            phone
-                                ? String(
-                                    phone
-                                ).trim()
-                                : null,
+                    phone:
+                        phone
+                            ? String(
+                                phone
+                            ).trim()
+                            : undefined,
 
-                        role,
+                    role,
 
-                        status,
+                    status,
 
-                        passwordHash,
-                    },
-
-                    select: userSelect,
+                    passwordHash,
                 });
 
+            const formattedUser =
+                formatUser(
+                    user.toObject()
+                );
+
             /*
-            --------------------------------------------------------------
-            Audit Trail
-            --------------------------------------------------------------
-            */
+             * Audit trail.
+             */
 
             try {
                 await createAuditLog({
@@ -276,7 +278,10 @@ router.post(
                         `User ${user.fullName} created. Email: ${user.email}, role: ${user.role}, status: ${user.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -289,9 +294,25 @@ router.post(
                 success: true,
                 message:
                     "User created successfully",
-                data: user,
+                data: formattedUser,
             });
-        } catch (error) {
+        } catch (error: any) {
+            /*
+             * MongoDB duplicate-key protection.
+             */
+
+            if (
+                error?.code === 11000
+            ) {
+                res.status(409).json({
+                    success: false,
+                    message:
+                        "A user with this email or ID already exists",
+                });
+
+                return;
+            }
+
             next(error);
         }
     }
@@ -315,12 +336,10 @@ router.put(
     ) => {
         try {
             const existingUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                }).lean();
 
             if (!existingUser) {
                 res.status(404).json({
@@ -342,14 +361,12 @@ router.put(
             } = req.body;
 
             /*
-            --------------------------------------------------------------
-            Prevent self role changes
-            --------------------------------------------------------------
-            */
+             * Prevent self role changes.
+             */
 
             if (
                 req.user?.userId ===
-                    existingUser.userId &&
+                existingUser.userId &&
                 role !== undefined &&
                 role !== existingUser.role
             ) {
@@ -363,10 +380,8 @@ router.put(
             }
 
             /*
-            --------------------------------------------------------------
-            Prevent non-admin Admin role assignment
-            --------------------------------------------------------------
-            */
+             * Prevent non-admin Admin role assignment.
+             */
 
             if (
                 role === "Admin" &&
@@ -382,10 +397,8 @@ router.put(
             }
 
             /*
-            --------------------------------------------------------------
-            Normalize email
-            --------------------------------------------------------------
-            */
+             * Normalize email.
+             */
 
             const normalizedEmail =
                 email !== undefined
@@ -395,23 +408,25 @@ router.put(
                     : undefined;
 
             /*
-            --------------------------------------------------------------
-            Duplicate email check
-            --------------------------------------------------------------
-            */
+             * Duplicate email check.
+             */
 
             if (
-                normalizedEmail !== undefined &&
                 normalizedEmail !==
-                    existingUser.email
+                undefined &&
+                normalizedEmail !==
+                existingUser.email
             ) {
                 const duplicate =
-                    await prisma.user.findUnique({
-                        where: {
-                            email:
-                                normalizedEmail,
+                    await User.findOne({
+                        email:
+                            normalizedEmail,
+
+                        userId: {
+                            $ne:
+                                req.params.id,
                         },
-                    });
+                    }).lean();
 
                 if (duplicate) {
                     res.status(409).json({
@@ -425,25 +440,21 @@ router.put(
             }
 
             /*
-            --------------------------------------------------------------
-            Prepare update data
-            --------------------------------------------------------------
-            */
+             * Prepare update data.
+             */
 
-            const data: {
-                fullName?: string;
-                email?: string;
-                phone?: string | null;
-                role?: string;
-                status?: string;
-                passwordHash?: string;
-            } = {};
+            const data: Record<
+                string,
+                any
+            > = {};
 
             if (
                 fullName !== undefined
             ) {
                 data.fullName =
-                    fullName.trim();
+                    String(
+                        fullName
+                    ).trim();
             }
 
             if (
@@ -462,7 +473,7 @@ router.put(
                         ? String(
                             phone
                         ).trim()
-                        : null;
+                        : undefined;
             }
 
             if (
@@ -474,7 +485,8 @@ router.put(
             if (
                 status !== undefined
             ) {
-                data.status = status;
+                data.status =
+                    status;
             }
 
             if (
@@ -488,35 +500,46 @@ router.put(
             }
 
             /*
-            --------------------------------------------------------------
-            Update user
-            --------------------------------------------------------------
-            */
+             * Update user.
+             */
 
             const user =
-                await prisma.user.update({
-                    where: {
+                await User.findOneAndUpdate(
+                    {
                         userId:
                             req.params.id,
                     },
+                    {
+                        $set: data,
+                    },
+                    {
+                        returnDocument: "after",
+                        runValidators:
+                            true,
+                    }
+                ).lean();
 
-                    data,
-
-                    select: userSelect,
+            if (!user) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "User not found",
                 });
 
+                return;
+            }
+
             /*
-            --------------------------------------------------------------
-            Audit changes
-            --------------------------------------------------------------
-            */
+             * Audit changes.
+             */
 
             try {
                 const changes: string[] =
                     [];
 
                 if (
-                    fullName !== undefined
+                    fullName !==
+                    undefined
                 ) {
                     changes.push(
                         "full name"
@@ -533,7 +556,8 @@ router.put(
                 }
 
                 if (
-                    phone !== undefined
+                    phone !==
+                    undefined
                 ) {
                     changes.push(
                         "phone"
@@ -557,7 +581,8 @@ router.put(
                 }
 
                 if (
-                    password !== undefined
+                    password !==
+                    undefined
                 ) {
                     changes.push(
                         "password"
@@ -576,14 +601,19 @@ router.put(
                         user.userId,
 
                     description:
-                        `User ${user.fullName} updated. Changed: ${
-                            changes.length > 0
-                                ? changes.join(", ")
-                                : "No tracked fields"
+                        `User ${user.fullName} updated. Changed: ${changes.length >
+                            0
+                            ? changes.join(
+                                ", "
+                            )
+                            : "No tracked fields"
                         }.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -596,9 +626,21 @@ router.put(
                 success: true,
                 message:
                     "User updated successfully",
-                data: user,
+                data: formatUser(user),
             });
-        } catch (error) {
+        } catch (error: any) {
+            if (
+                error?.code === 11000
+            ) {
+                res.status(409).json({
+                    success: false,
+                    message:
+                        "A user with this email already exists",
+                });
+
+                return;
+            }
+
             next(error);
         }
     }
@@ -622,12 +664,10 @@ router.patch(
     ) => {
         try {
             const existingUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                }).lean();
 
             if (!existingUser) {
                 res.status(404).json({
@@ -640,10 +680,8 @@ router.patch(
             }
 
             /*
-            --------------------------------------------------------------
-            Prevent self deactivation
-            --------------------------------------------------------------
-            */
+             * Prevent self deactivation.
+             */
 
             if (
                 req.user?.userId ===
@@ -659,25 +697,35 @@ router.patch(
             }
 
             const user =
-                await prisma.user.update({
-                    where: {
+                await User.findOneAndUpdate(
+                    {
                         userId:
                             req.params.id,
                     },
-
-                    data: {
-                        status:
-                            "Inactive",
+                    {
+                        $set: {
+                            status:
+                                "Inactive",
+                        },
                     },
+                    {
+                        returnDocument: "after",
+                    }
+                ).lean();
 
-                    select: userSelect,
+            if (!user) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "User not found",
                 });
 
+                return;
+            }
+
             /*
-            --------------------------------------------------------------
-            Audit Trail
-            --------------------------------------------------------------
-            */
+             * Audit trail.
+             */
 
             try {
                 await createAuditLog({
@@ -697,7 +745,10 @@ router.patch(
                         `User ${user.fullName} deactivated. Previous status: ${existingUser.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -710,7 +761,7 @@ router.patch(
                 success: true,
                 message:
                     "User deactivated successfully",
-                data: user,
+                data: formatUser(user),
             });
         } catch (error) {
             next(error);
@@ -736,12 +787,10 @@ router.delete(
     ) => {
         try {
             const existingUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                }).lean();
 
             if (!existingUser) {
                 res.status(404).json({
@@ -754,10 +803,8 @@ router.delete(
             }
 
             /*
-            --------------------------------------------------------------
-            Prevent self deletion
-            --------------------------------------------------------------
-            */
+             * Prevent self deletion.
+             */
 
             if (
                 req.user?.userId ===
@@ -773,23 +820,29 @@ router.delete(
             }
 
             /*
-            --------------------------------------------------------------
-            Delete user
-            --------------------------------------------------------------
-            */
+             * Delete user's direct
+             * permission assignments first.
+             */
 
-            await prisma.user.delete({
-                where: {
+            await UserPermission.deleteMany(
+                {
                     userId:
-                        req.params.id,
-                },
+                        existingUser.userId,
+                }
+            );
+
+            /*
+             * Delete user.
+             */
+
+            await User.deleteOne({
+                userId:
+                    req.params.id,
             });
 
             /*
-            --------------------------------------------------------------
-            Audit Trail
-            --------------------------------------------------------------
-            */
+             * Audit trail.
+             */
 
             try {
                 await createAuditLog({
@@ -807,7 +860,10 @@ router.delete(
                         `User ${existingUser.fullName} deleted. Email: ${existingUser.email}, role: ${existingUser.role}, status: ${existingUser.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -845,50 +901,14 @@ router.get(
     ) => {
         try {
             const user =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-
-                    select: {
-                        userId: true,
-                        fullName: true,
-                        email: true,
-                        role: true,
-                        status: true,
-
-                        permissions: {
-                            where: {
-                                granted: true,
-                            },
-
-                            select: {
-                                userPermissionId:
-                                    true,
-
-                                granted:
-                                    true,
-
-                                permission: {
-                                    select: {
-                                        permissionId:
-                                            true,
-
-                                        code: true,
-
-                                        name: true,
-
-                                        description:
-                                            true,
-
-                                        module: true,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                })
+                    .select(
+                        "userId fullName email role status"
+                    )
+                    .lean();
 
             if (!user) {
                 res.status(404).json({
@@ -901,10 +921,98 @@ router.get(
             }
 
             /*
-            --------------------------------------------------------------
-            Audit Trail
-            --------------------------------------------------------------
-            */
+             * Get direct granted permissions.
+             */
+
+            const assignments =
+                await UserPermission.find({
+                    userId:
+                        user.userId,
+                    granted: true,
+                }).lean();
+
+            const permissionIds =
+                assignments.map(
+                    (
+                        item
+                    ) =>
+                        item.permissionId
+                );
+
+            const permissions =
+                permissionIds.length >
+                    0
+                    ? await Permission.find(
+                        {
+                            permissionId:
+                            {
+                                $in:
+                                    permissionIds,
+                            },
+                        }
+                    )
+                        .sort({
+                            module: 1,
+                            code: 1,
+                        })
+                        .lean()
+                    : [];
+
+            const formattedPermissions =
+                assignments
+                    .map(
+                        (
+                            assignment
+                        ) => {
+                            const permission =
+                                permissions.find(
+                                    (
+                                        item
+                                    ) =>
+                                        item.permissionId ===
+                                        assignment.permissionId
+                                );
+
+                            if (
+                                !permission
+                            ) {
+                                return null;
+                            }
+
+                            return {
+                                userPermissionId:
+                                    assignment.userPermissionId,
+
+                                granted:
+                                    assignment.granted,
+
+                                permission: {
+                                    permissionId:
+                                        permission.permissionId,
+
+                                    code:
+                                        permission.code,
+
+                                    name:
+                                        permission.name,
+
+                                    description:
+                                        permission.description ??
+                                        null,
+
+                                    module:
+                                        permission.module,
+                                },
+                            };
+                        }
+                    )
+                    .filter(
+                        Boolean
+                    );
+
+            /*
+             * Audit trail.
+             */
 
             try {
                 await createAuditLog({
@@ -924,7 +1032,10 @@ router.get(
                         `Permissions viewed for user ${user.fullName} (${user.userId}).`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -935,7 +1046,13 @@ router.get(
 
             res.json({
                 success: true,
-                data: user,
+
+                data: {
+                    ...user,
+
+                    permissions:
+                        formattedPermissions,
+                },
             });
         } catch (error) {
             next(error);
@@ -952,12 +1069,40 @@ router.get(
 router.get(
     "/permissions/all",
     authenticate,
-    requirePermission("users.permissions"),
+    requirePermission(
+        "users.permissions"
+    ),
     async (_req, res, next) => {
         try {
+            /*
+             * Return database permissions
+             * when available.
+             */
+
+            const databasePermissions =
+                await Permission.find({})
+                    .sort({
+                        module: 1,
+                        code: 1,
+                    })
+                    .lean();
+
+            /*
+             * If permissions have not yet
+             * been seeded into MongoDB, keep
+             * the existing application
+             * permission list available.
+             */
+
+            const data =
+                databasePermissions.length >
+                    0
+                    ? databasePermissions
+                    : PERMISSIONS;
+
             res.json({
                 success: true,
-                data: PERMISSIONS,
+                data,
             });
         } catch (error) {
             next(error);
@@ -982,13 +1127,18 @@ router.get(
 |     ]
 | }
 |
+|--------------------------------------------------------------------------
 */
 
 router.put(
     "/:id/permissions",
     authenticate,
-    requirePermission("users.permissions"),
-    validate(updateUserPermissionsSchema),
+    requirePermission(
+        "users.permissions"
+    ),
+    validate(
+        updateUserPermissionsSchema
+    ),
     async (
         req: AuthenticatedRequest,
         res,
@@ -996,20 +1146,14 @@ router.put(
     ) => {
         try {
             const targetUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-
-                    select: {
-                        userId: true,
-                        fullName: true,
-                        email: true,
-                        role: true,
-                        status: true,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                })
+                    .select(
+                        "userId fullName email role status"
+                    )
+                    .lean();
 
             if (!targetUser) {
                 res.status(404).json({
@@ -1021,36 +1165,31 @@ router.put(
                 return;
             }
 
-            /*
-            --------------------------------------------------------------
-            Permission list is validated by Zod
-            --------------------------------------------------------------
-            */
-
             const permissionCodes =
-                req.body.permissionCodes as string[];
+                req.body
+                    .permissionCodes as string[];
 
             /*
-            --------------------------------------------------------------
-            Normalize permission codes
-            --------------------------------------------------------------
-            */
+             * Normalize permission codes.
+             */
 
-            const normalizedCodes: string[] =
+            const normalizedCodes:
+                string[] =
                 Array.from(
-                    new Set<string>(
+                    new Set(
                         permissionCodes.map(
-                            (code: string) =>
+                            (
+                                code: string
+                            ) =>
                                 code.trim()
                         )
                     )
                 );
 
             /*
-            --------------------------------------------------------------
-            Validate against known permissions
-            --------------------------------------------------------------
-            */
+             * Validate against known
+             * application permissions.
+             */
 
             const invalidCodes =
                 normalizedCodes.filter(
@@ -1078,86 +1217,185 @@ router.put(
             }
 
             /*
-            --------------------------------------------------------------
-            Get existing direct permissions
-            --------------------------------------------------------------
-            */
+             * Resolve permissions from MongoDB.
+             */
+
+            const mongoPermissions =
+                normalizedCodes.length >
+                    0
+                    ? await Permission.find(
+                        {
+                            code: {
+                                $in:
+                                    normalizedCodes,
+                            },
+                        }
+                    ).lean()
+                    : [];
+
+            /*
+             * Check that every requested
+             * permission exists in MongoDB.
+             */
+
+            const mongoCodes =
+                new Set(
+                    mongoPermissions.map(
+                        (
+                            permission
+                        ) =>
+                            permission.code
+                    )
+                );
+
+            const missingMongoPermissions =
+                normalizedCodes.filter(
+                    (code) =>
+                        !mongoCodes.has(
+                            code
+                        )
+                );
+
+            if (
+                missingMongoPermissions.length >
+                0
+            ) {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        `Permission(s) not found in MongoDB: ${missingMongoPermissions.join(", ")}`,
+                });
+
+                return;
+            }
+
+            /*
+             * Get current direct permissions.
+             */
 
             const before =
-                await prisma.userPermission.findMany(
+                await UserPermission.find(
                     {
-                        where: {
+                        userId:
+                            targetUser.userId,
+                        granted: true,
+                    }
+                ).lean();
+
+            const permissionIds =
+                before.map(
+                    (
+                        item
+                    ) =>
+                        item.permissionId
+                );
+
+            const beforePermissions =
+                permissionIds.length >
+                    0
+                    ? await Permission.find(
+                        {
+                            permissionId:
+                            {
+                                $in:
+                                    permissionIds,
+                            },
+                        }
+                    )
+                        .select(
+                            "permissionId code"
+                        )
+                        .lean()
+                    : [];
+
+            const beforeCodes =
+                beforePermissions.map(
+                    (
+                        permission
+                    ) =>
+                        permission.code
+                );
+
+            /*
+             * Replace all direct permissions.
+             */
+
+            await UserPermission.deleteMany(
+                {
+                    userId:
+                        targetUser.userId,
+                }
+            );
+
+            if (
+                mongoPermissions.length >
+                0
+            ) {
+                await UserPermission.insertMany(
+                    mongoPermissions.map(
+                        (
+                            permission
+                        ) => ({
+                            userPermissionId:
+                                generateMongoId(
+                                    "UPR"
+                                ),
+
                             userId:
                                 targetUser.userId,
 
-                            granted: true,
-                        },
+                            permissionId:
+                                permission.permissionId,
 
-                        select: {
-                            permission: {
-                                select: {
-                                    code: true,
-                                },
-                            },
-                        },
-                    }
+                            granted:
+                                true,
+                        })
+                    )
                 );
-
-            const beforeCodes: string[] =
-                before.map(
-                    (item) =>
-                        item.permission.code
-                );
+            }
 
             /*
-            --------------------------------------------------------------
-            Replace direct permissions
-            --------------------------------------------------------------
-            */
-
-            const result =
-                await setUserPermissions(
-                    targetUser.userId,
-                    normalizedCodes
-                );
-
-            /*
-            --------------------------------------------------------------
-            Determine changes
-            --------------------------------------------------------------
-            */
+             * Determine changes.
+             */
 
             const beforeSet =
-                new Set<string>(
+                new Set(
                     beforeCodes
                 );
 
             const afterSet =
-                new Set<string>(
+                new Set(
                     normalizedCodes
                 );
 
-            const granted: string[] =
+            const granted =
                 normalizedCodes.filter(
-                    (code: string) =>
-                        !beforeSet.has(code)
+                    (
+                        code
+                    ) =>
+                        !beforeSet.has(
+                            code
+                        )
                 );
 
-            const revoked: string[] =
+            const revoked =
                 beforeCodes.filter(
-                    (code: string) =>
-                        !afterSet.has(code)
+                    (
+                        code
+                    ) =>
+                        !afterSet.has(
+                            code
+                        )
                 );
 
             /*
-            --------------------------------------------------------------
-            Audit Trail
-            --------------------------------------------------------------
-            */
+             * Audit trail.
+             */
 
             try {
                 if (
-                    granted.length > 0
+                    granted.length >
+                    0
                 ) {
                     await createAuditLog({
                         userId:
@@ -1166,7 +1404,8 @@ router.put(
                         action:
                             "GRANT_PERMISSION",
 
-                        module: "Users",
+                        module:
+                            "Users",
 
                         recordId:
                             targetUser.userId,
@@ -1175,12 +1414,16 @@ router.put(
                             `Permissions granted to ${targetUser.fullName}: ${granted.join(", ")}.`,
 
                         ipAddress:
-                            req.ip,
+                            req.ip ||
+                            req.socket
+                                .remoteAddress ||
+                            undefined,
                     });
                 }
 
                 if (
-                    revoked.length > 0
+                    revoked.length >
+                    0
                 ) {
                     await createAuditLog({
                         userId:
@@ -1189,7 +1432,8 @@ router.put(
                         action:
                             "REVOKE_PERMISSION",
 
-                        module: "Users",
+                        module:
+                            "Users",
 
                         recordId:
                             targetUser.userId,
@@ -1198,13 +1442,18 @@ router.put(
                             `Permissions revoked from ${targetUser.fullName}: ${revoked.join(", ")}.`,
 
                         ipAddress:
-                            req.ip,
+                            req.ip ||
+                            req.socket
+                                .remoteAddress ||
+                            undefined,
                     });
                 }
 
                 if (
-                    granted.length === 0 &&
-                    revoked.length === 0
+                    granted.length ===
+                    0 &&
+                    revoked.length ===
+                    0
                 ) {
                     await createAuditLog({
                         userId:
@@ -1213,7 +1462,8 @@ router.put(
                         action:
                             "UPDATE_PERMISSIONS",
 
-                        module: "Users",
+                        module:
+                            "Users",
 
                         recordId:
                             targetUser.userId,
@@ -1222,7 +1472,10 @@ router.put(
                             `User permissions reviewed for ${targetUser.fullName}. No permission changes were made.`,
 
                         ipAddress:
-                            req.ip,
+                            req.ip ||
+                            req.socket
+                                .remoteAddress ||
+                            undefined,
                     });
                 }
             } catch (auditError) {
@@ -1232,12 +1485,6 @@ router.put(
                 );
             }
 
-            /*
-            --------------------------------------------------------------
-            Response
-            --------------------------------------------------------------
-            */
-
             res.json({
                 success: true,
 
@@ -1245,23 +1492,23 @@ router.put(
                     "User permissions updated successfully",
 
                 data: {
-                    user: targetUser,
+                    user:
+                        targetUser,
 
                     role:
-                        result.role,
+                        targetUser.role,
 
                     status:
-                        result.status,
+                        targetUser.status,
 
                     effectivePermissions:
-                        result.permissions,
+                        normalizedCodes,
 
                     directPermissions:
                         normalizedCodes,
 
                     changes: {
                         granted,
-
                         revoked,
                     },
                 },
@@ -1301,8 +1548,12 @@ router.put(
 router.post(
     "/:id/permissions/grant",
     authenticate,
-    requirePermission("users.permissions"),
-    validate(singlePermissionSchema),
+    requirePermission(
+        "users.permissions"
+    ),
+    validate(
+        singlePermissionSchema
+    ),
     async (
         req: AuthenticatedRequest,
         res,
@@ -1310,17 +1561,14 @@ router.post(
     ) => {
         try {
             const targetUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-
-                    select: {
-                        userId: true,
-                        fullName: true,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                })
+                    .select(
+                        "userId fullName"
+                    )
+                    .lean();
 
             if (!targetUser) {
                 res.status(404).json({
@@ -1333,19 +1581,25 @@ router.post(
             }
 
             const permissionCode =
-                req.body.permissionCode as string;
+                String(
+                    req.body
+                        .permissionCode
+                ).trim();
 
-            const permission =
-                await prisma.permission.findUnique(
-                    {
-                        where: {
-                            code:
-                                permissionCode.trim(),
-                        },
-                    }
+            /*
+             * Validate application permission.
+             */
+
+            const knownPermission =
+                PERMISSIONS.find(
+                    (
+                        permission
+                    ) =>
+                        permission.code ===
+                        permissionCode
                 );
 
-            if (!permission) {
+            if (!knownPermission) {
                 res.status(404).json({
                     success: false,
                     message:
@@ -1355,11 +1609,73 @@ router.post(
                 return;
             }
 
-            const result =
-                await grantUserPermission(
-                    targetUser.userId,
-                    permissionCode.trim()
+            /*
+             * Find permission in MongoDB.
+             */
+
+            const permission =
+                await Permission.findOne({
+                    code:
+                        permissionCode,
+                }).lean();
+
+            if (!permission) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        `Permission not found in MongoDB: ${permissionCode}`,
+                });
+
+                return;
+            }
+
+            /*
+             * Check existing assignment.
+             */
+
+            const existing =
+                await UserPermission.findOne(
+                    {
+                        userId:
+                            targetUser.userId,
+
+                        permissionId:
+                            permission.permissionId,
+                    }
                 );
+
+            let result;
+
+            if (existing) {
+                existing.granted =
+                    true;
+
+                await existing.save();
+
+                result = existing.toObject();
+            } else {
+                const created =
+                    await UserPermission.create(
+                        {
+                            userPermissionId:
+                                generateMongoId(
+                                    "UPR"
+                                ),
+
+                            userId:
+                                targetUser.userId,
+
+                            permissionId:
+                                permission.permissionId,
+
+                            granted:
+                                true,
+                        }
+                    );
+
+                result =
+                    created.toObject();
+            }
 
             try {
                 await createAuditLog({
@@ -1376,10 +1692,13 @@ router.post(
                         targetUser.userId,
 
                     description:
-                        `Permission ${permissionCode.trim()} granted to ${targetUser.fullName}.`,
+                        `Permission ${permissionCode} granted to ${targetUser.fullName}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -1390,9 +1709,15 @@ router.post(
 
             res.status(200).json({
                 success: true,
+
                 message:
                     "Permission granted successfully",
-                data: result,
+
+                data: {
+                    ...result,
+
+                    permission,
+                },
             });
         } catch (error) {
             next(error);
@@ -1409,8 +1734,12 @@ router.post(
 router.post(
     "/:id/permissions/revoke",
     authenticate,
-    requirePermission("users.permissions"),
-    validate(singlePermissionSchema),
+    requirePermission(
+        "users.permissions"
+    ),
+    validate(
+        singlePermissionSchema
+    ),
     async (
         req: AuthenticatedRequest,
         res,
@@ -1418,17 +1747,14 @@ router.post(
     ) => {
         try {
             const targetUser =
-                await prisma.user.findUnique({
-                    where: {
-                        userId:
-                            req.params.id,
-                    },
-
-                    select: {
-                        userId: true,
-                        fullName: true,
-                    },
-                });
+                await User.findOne({
+                    userId:
+                        req.params.id,
+                })
+                    .select(
+                        "userId fullName"
+                    )
+                    .lean();
 
             if (!targetUser) {
                 res.status(404).json({
@@ -1441,19 +1767,25 @@ router.post(
             }
 
             const permissionCode =
-                req.body.permissionCode as string;
+                String(
+                    req.body
+                        .permissionCode
+                ).trim();
 
-            const permission =
-                await prisma.permission.findUnique(
-                    {
-                        where: {
-                            code:
-                                permissionCode.trim(),
-                        },
-                    }
+            /*
+             * Validate application permission.
+             */
+
+            const knownPermission =
+                PERMISSIONS.find(
+                    (
+                        permission
+                    ) =>
+                        permission.code ===
+                        permissionCode
                 );
 
-            if (!permission) {
+            if (!knownPermission) {
                 res.status(404).json({
                     success: false,
                     message:
@@ -1463,34 +1795,88 @@ router.post(
                 return;
             }
 
-            const result =
-                await revokeUserPermission(
-                    targetUser.userId,
-                    permissionCode.trim()
-                );
+            /*
+             * Find permission in MongoDB.
+             */
 
-            try {
-                if (result.revoked) {
-                    await createAuditLog({
+            const permission =
+                await Permission.findOne({
+                    code:
+                        permissionCode,
+                }).lean();
+
+            if (!permission) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        `Permission not found in MongoDB: ${permissionCode}`,
+                });
+
+                return;
+            }
+
+            /*
+             * Find existing assignment.
+             */
+
+            const existing =
+                await UserPermission.findOne(
+                    {
                         userId:
-                            req.user?.userId,
-
-                        action:
-                            "REVOKE_PERMISSION",
-
-                        module:
-                            "Users",
-
-                        recordId:
                             targetUser.userId,
 
-                        description:
-                            `Permission ${permissionCode.trim()} revoked from ${targetUser.fullName}.`,
+                        permissionId:
+                            permission.permissionId,
+                    }
+                );
 
-                        ipAddress:
-                            req.ip,
-                    });
-                }
+            if (!existing) {
+                res.status(200).json({
+                    success: true,
+
+                    message:
+                        "Permission was not assigned",
+
+                    data: {
+                        revoked:
+                            false,
+
+                        message:
+                            "Permission was not assigned to this user.",
+                    },
+                });
+
+                return;
+            }
+
+            existing.granted =
+                false;
+
+            await existing.save();
+
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId,
+
+                    action:
+                        "REVOKE_PERMISSION",
+
+                    module:
+                        "Users",
+
+                    recordId:
+                        targetUser.userId,
+
+                    description:
+                        `Permission ${permissionCode} revoked from ${targetUser.fullName}.`,
+
+                    ipAddress:
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
+                });
             } catch (auditError) {
                 console.error(
                     "Failed to create revoke permission audit log:",
@@ -1500,9 +1886,19 @@ router.post(
 
             res.status(200).json({
                 success: true,
+
                 message:
-                    result.message,
-                data: result,
+                    "Permission revoked successfully",
+
+                data: {
+                    revoked:
+                        true,
+
+                    message:
+                        "Permission revoked successfully.",
+
+                    permission,
+                },
             });
         } catch (error) {
             next(error);

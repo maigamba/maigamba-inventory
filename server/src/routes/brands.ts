@@ -1,7 +1,9 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Brand from "../models/Brand";
+import Product from "../models/Product";
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
+
 import {
     authenticate,
     requirePermission,
@@ -15,6 +17,8 @@ const router = Router();
 | BRAND ROUTES
 |--------------------------------------------------------------------------
 |
+| MongoDB / Mongoose version
+|
 | Permissions:
 |
 | brands.view
@@ -23,10 +27,38 @@ const router = Router();
 */
 
 /**
+ * Remove MongoDB internal fields from API responses.
+ */
+function cleanDocument(document: any) {
+    if (!document) {
+        return document;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
+ * Escape a string before using it inside a MongoDB regex.
+ */
+function escapeRegex(value: string) {
+    return value.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+    );
+}
+
+/**
  * ============================================================================
  * GET ALL BRANDS
  * ============================================================================
  */
+
 router.get(
     "/",
     authenticate,
@@ -34,29 +66,35 @@ router.get(
     async (_req, res, next) => {
         try {
             const brands =
-                await prisma.brand.findMany({
-                    orderBy: {
-                        createdAt: "desc",
-                    },
+                await Brand.find({})
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
 
-                    include: {
-                        products: {
-                            select: {
-                                productId: true,
-                            },
-                        },
-                    },
-                });
+            /**
+             * Count products belonging to each brand.
+             *
+             * This replaces Prisma's relational include:
+             *
+             * products: {
+             *     select: {
+             *         productId: true
+             *     }
+             * }
+             */
+            const data = await Promise.all(
+                brands.map(async (brand) => {
+                    const productCount =
+                        await Product.countDocuments({
+                            brandId:
+                                brand.brandId,
+                        });
 
-            const data = brands.map(
-                (brand) => ({
-                    ...brand,
-
-                    productCount:
-                        brand.products.length,
-
-                    products:
-                        undefined,
+                    return {
+                        ...cleanDocument(brand),
+                        productCount,
+                    };
                 })
             );
 
@@ -75,6 +113,7 @@ router.get(
  * GET SINGLE BRAND
  * ============================================================================
  */
+
 router.get(
     "/:id",
     authenticate,
@@ -82,16 +121,10 @@ router.get(
     async (req, res, next) => {
         try {
             const brand =
-                await prisma.brand.findUnique({
-                    where: {
-                        brandId:
-                            req.params.id,
-                    },
-
-                    include: {
-                        products: true,
-                    },
-                });
+                await Brand.findOne({
+                    brandId:
+                        req.params.id,
+                }).lean();
 
             if (!brand) {
                 res.status(404).json({
@@ -103,9 +136,28 @@ router.get(
                 return;
             }
 
+            /**
+             * Get products belonging to this brand.
+             */
+            const products =
+                await Product.find({
+                    brandId:
+                        brand.brandId,
+                })
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
+
             res.json({
                 success: true,
-                data: brand,
+                data: {
+                    ...cleanDocument(brand),
+                    products:
+                        products.map(
+                            cleanDocument
+                        ),
+                },
             });
         } catch (error) {
             next(error);
@@ -118,6 +170,7 @@ router.get(
  * CREATE BRAND
  * ============================================================================
  */
+
 router.post(
     "/",
     authenticate,
@@ -134,11 +187,13 @@ router.post(
                 status = "Active",
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Validate name
-            // --------------------------------------------------------------
-
-            if (!name) {
+            /**
+             * Validate name.
+             */
+            if (
+                !name ||
+                !String(name).trim()
+            ) {
                 res.status(400).json({
                     success: false,
                     message:
@@ -148,19 +203,25 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Check duplicate brand
-            // --------------------------------------------------------------
+            const normalizedName =
+                String(name).trim();
 
+            /**
+             * Check duplicate brand.
+             *
+             * Case-insensitive, matching the previous
+             * Prisma implementation.
+             */
             const existing =
-                await prisma.brand.findFirst({
-                    where: {
-                        name: {
-                            equals: name,
-                            mode: "insensitive",
-                        },
+                await Brand.findOne({
+                    name: {
+                        $regex:
+                            `^${escapeRegex(
+                                normalizedName
+                            )}$`,
+                        $options: "i",
                     },
-                });
+                }).lean();
 
             if (existing) {
                 res.status(409).json({
@@ -172,36 +233,46 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Create brand
-            // --------------------------------------------------------------
-
+            /**
+             * Create brand.
+             */
             const brand =
-                await prisma.brand.create({
-                    data: {
-                        brandId:
-                            generateId("BRD"),
+                await Brand.create({
+                    brandId:
+                        generateMongoId(
+                            "BRD"
+                        ),
 
-                        name,
+                    name:
+                        normalizedName,
 
-                        description,
+                    description:
+                        description !==
+                            undefined
+                            ? String(
+                                description
+                            ).trim()
+                            : undefined,
 
-                        status,
-                    },
+                    status:
+                        String(
+                            status || "Active"
+                        ).trim(),
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "CREATE",
+                    action:
+                        "CREATE",
 
-                    module: "Brands",
+                    module:
+                        "Brands",
 
                     recordId:
                         brand.brandId,
@@ -210,7 +281,10 @@ router.post(
                         `Brand ${brand.name} created. Status: ${brand.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -223,7 +297,9 @@ router.post(
                 success: true,
                 message:
                     "Brand created successfully",
-                data: brand,
+                data: cleanDocument(
+                    brand.toObject()
+                ),
             });
         } catch (error) {
             next(error);
@@ -236,6 +312,7 @@ router.post(
  * UPDATE BRAND
  * ============================================================================
  */
+
 router.put(
     "/:id",
     authenticate,
@@ -246,17 +323,14 @@ router.put(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing brand
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing brand.
+             */
             const existing =
-                await prisma.brand.findUnique({
-                    where: {
-                        brandId:
-                            req.params.id,
-                    },
-                });
+                await Brand.findOne({
+                    brandId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -274,30 +348,32 @@ router.put(
                 status,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Check duplicate name when changed
-            // --------------------------------------------------------------
-
+            /**
+             * Check duplicate name when changed.
+             */
             if (
                 name !== undefined &&
-                name.trim() !== existing.name
+                String(name).trim() !==
+                existing.name
             ) {
-                const duplicate =
-                    await prisma.brand.findFirst({
-                        where: {
-                            name: {
-                                equals:
-                                    name.trim(),
-                                mode:
-                                    "insensitive",
-                            },
+                const normalizedName =
+                    String(name).trim();
 
-                            NOT: {
-                                brandId:
-                                    req.params.id,
-                            },
+                const duplicate =
+                    await Brand.findOne({
+                        name: {
+                            $regex:
+                                `^${escapeRegex(
+                                    normalizedName
+                                )}$`,
+                            $options: "i",
                         },
-                    });
+
+                        brandId: {
+                            $ne:
+                                req.params.id,
+                        },
+                    }).lean();
 
                 if (duplicate) {
                     res.status(409).json({
@@ -310,46 +386,75 @@ router.put(
                 }
             }
 
-            // --------------------------------------------------------------
-            // Update brand
-            // --------------------------------------------------------------
+            /**
+             * Build update object.
+             */
+            const updateData: Record<
+                string,
+                unknown
+            > = {};
 
+            if (name !== undefined) {
+                updateData.name =
+                    String(name).trim();
+            }
+
+            if (
+                description !==
+                undefined
+            ) {
+                updateData.description =
+                    String(
+                        description
+                    ).trim();
+            }
+
+            if (status !== undefined) {
+                updateData.status =
+                    String(status).trim();
+            }
+
+            /**
+             * Update brand.
+             */
             const brand =
-                await prisma.brand.update({
-                    where: {
+                await Brand.findOneAndUpdate(
+                    {
                         brandId:
                             req.params.id,
                     },
-
-                    data: {
-                        ...(name !== undefined && {
-                            name,
-                        }),
-
-                        ...(description !==
-                            undefined && {
-                            description,
-                        }),
-
-                        ...(status !==
-                            undefined && {
-                            status,
-                        }),
+                    {
+                        $set: updateData,
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!brand) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Brand not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "UPDATE",
+                    action:
+                        "UPDATE",
 
-                    module: "Brands",
+                    module:
+                        "Brands",
 
                     recordId:
                         brand.brandId,
@@ -358,7 +463,10 @@ router.put(
                         `Brand ${brand.name} updated. Status: ${brand.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -371,7 +479,9 @@ router.put(
                 success: true,
                 message:
                     "Brand updated successfully",
-                data: brand,
+                data: cleanDocument(
+                    brand
+                ),
             });
         } catch (error) {
             next(error);
@@ -384,6 +494,7 @@ router.put(
  * ARCHIVE BRAND
  * ============================================================================
  */
+
 router.patch(
     "/:id/archive",
     authenticate,
@@ -394,17 +505,14 @@ router.patch(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing brand
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing brand.
+             */
             const existing =
-                await prisma.brand.findUnique({
-                    where: {
-                        brandId:
-                            req.params.id,
-                    },
-                });
+                await Brand.findOne({
+                    brandId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -416,34 +524,49 @@ router.patch(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Archive brand
-            // --------------------------------------------------------------
-
+            /**
+             * Archive brand.
+             */
             const brand =
-                await prisma.brand.update({
-                    where: {
+                await Brand.findOneAndUpdate(
+                    {
                         brandId:
                             req.params.id,
                     },
-
-                    data: {
-                        status: "Inactive",
+                    {
+                        $set: {
+                            status: "Inactive",
+                        },
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!brand) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Brand not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "ARCHIVE",
+                    action:
+                        "ARCHIVE",
 
-                    module: "Brands",
+                    module:
+                        "Brands",
 
                     recordId:
                         brand.brandId,
@@ -452,7 +575,10 @@ router.patch(
                         `Brand ${brand.name} archived. Previous status: ${existing.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -465,7 +591,9 @@ router.patch(
                 success: true,
                 message:
                     "Brand archived successfully",
-                data: brand,
+                data: cleanDocument(
+                    brand
+                ),
             });
         } catch (error) {
             next(error);
@@ -478,6 +606,7 @@ router.patch(
  * DELETE BRAND
  * ============================================================================
  */
+
 router.delete(
     "/:id",
     authenticate,
@@ -488,17 +617,14 @@ router.delete(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing brand
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing brand.
+             */
             const existing =
-                await prisma.brand.findUnique({
-                    where: {
-                        brandId:
-                            req.params.id,
-                    },
-                });
+                await Brand.findOne({
+                    brandId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -510,29 +636,27 @@ router.delete(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Delete brand
-            // --------------------------------------------------------------
-
-            await prisma.brand.delete({
-                where: {
-                    brandId:
-                        req.params.id,
-                },
+            /**
+             * Delete brand.
+             */
+            await Brand.deleteOne({
+                brandId:
+                    req.params.id,
             });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "DELETE",
+                    action:
+                        "DELETE",
 
-                    module: "Brands",
+                    module:
+                        "Brands",
 
                     recordId:
                         existing.brandId,
@@ -541,7 +665,10 @@ router.delete(
                         `Brand ${existing.name} deleted. Previous status: ${existing.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(

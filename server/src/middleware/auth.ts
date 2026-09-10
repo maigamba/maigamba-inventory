@@ -32,7 +32,10 @@ interface MaigambaJwtPayload extends jwt.JwtPayload {
 function isValidJwtPayload(
     payload: string | jwt.JwtPayload
 ): payload is MaigambaJwtPayload {
-    if (typeof payload !== "object" || payload === null) {
+    if (
+        typeof payload !== "object" ||
+        payload === null
+    ) {
         return false;
     }
 
@@ -56,7 +59,8 @@ export function authenticate(
     next: NextFunction
 ) {
     try {
-        const authorization = req.headers.authorization;
+        const authorization =
+            req.headers.authorization;
 
         if (!authorization) {
             res.status(401).json({
@@ -66,7 +70,8 @@ export function authenticate(
             return;
         }
 
-        const [scheme, token] = authorization.trim().split(/\s+/);
+        const [scheme, token] =
+            authorization.trim().split(/\s+/);
 
         if (
             !scheme ||
@@ -80,9 +85,13 @@ export function authenticate(
             return;
         }
 
-        const decoded = jwt.verify(token, JWT_SECRET, {
-            algorithms: [JWT_ALGORITHM],
-        });
+        const decoded = jwt.verify(
+            token,
+            JWT_SECRET,
+            {
+                algorithms: [JWT_ALGORITHM],
+            }
+        );
 
         if (!isValidJwtPayload(decoded)) {
             res.status(401).json({
@@ -106,7 +115,10 @@ export function authenticate(
             message?: string;
         };
 
-        if (jwtError?.name === "TokenExpiredError") {
+        if (
+            jwtError?.name ===
+            "TokenExpiredError"
+        ) {
             res.status(401).json({
                 success: false,
                 message:
@@ -115,10 +127,14 @@ export function authenticate(
             return;
         }
 
-        if (jwtError?.name === "JsonWebTokenError") {
+        if (
+            jwtError?.name ===
+            "JsonWebTokenError"
+        ) {
             res.status(401).json({
                 success: false,
-                message: "Invalid authentication token.",
+                message:
+                    "Invalid authentication token.",
             });
             return;
         }
@@ -130,7 +146,9 @@ export function authenticate(
 /**
  * Role-based authorization.
  */
-export function requireRole(...allowedRoles: string[]) {
+export function requireRole(
+    ...allowedRoles: string[]
+) {
     return (
         req: AuthenticatedRequest,
         res: Response,
@@ -144,7 +162,9 @@ export function requireRole(...allowedRoles: string[]) {
             return;
         }
 
-        const userRole = String(req.user.role || "")
+        const userRole = String(
+            req.user.role || ""
+        )
             .trim()
             .toLowerCase();
 
@@ -170,8 +190,12 @@ export function requireRole(...allowedRoles: string[]) {
 
 /**
  * Database-backed permission authorization.
+ *
+ * Permissions are now resolved from MongoDB.
  */
-export function requirePermission(permission: string) {
+export function requirePermission(
+    permission: string
+) {
     return async (
         req: AuthenticatedRequest,
         res: Response,
@@ -181,12 +205,14 @@ export function requirePermission(permission: string) {
             if (!req.user) {
                 res.status(401).json({
                     success: false,
-                    message: "Authentication required.",
+                    message:
+                        "Authentication required.",
                 });
                 return;
             }
 
-            const normalizedPermission = String(permission || "").trim();
+            const normalizedPermission =
+                String(permission || "").trim();
 
             if (!normalizedPermission) {
                 res.status(403).json({
@@ -197,10 +223,11 @@ export function requirePermission(permission: string) {
                 return;
             }
 
-            const allowed = await hasPermission(
-                req.user.userId,
-                normalizedPermission
-            );
+            const allowed =
+                await hasPermission(
+                    req.user.userId,
+                    normalizedPermission
+                );
 
             if (!allowed) {
                 res.status(403).json({
@@ -221,7 +248,9 @@ export function requirePermission(permission: string) {
 /**
  * Require at least one of the supplied permissions.
  */
-export function requireAnyPermission(...permissions: string[]) {
+export function requireAnyPermission(
+    ...permissions: string[]
+) {
     return async (
         req: AuthenticatedRequest,
         res: Response,
@@ -231,16 +260,22 @@ export function requireAnyPermission(...permissions: string[]) {
             if (!req.user) {
                 res.status(401).json({
                     success: false,
-                    message: "Authentication required.",
+                    message:
+                        "Authentication required.",
                 });
                 return;
             }
 
-            const normalizedPermissions = permissions
-                .map((permission) => String(permission || "").trim())
-                .filter(Boolean);
+            const normalizedPermissions =
+                permissions
+                    .map((permission) =>
+                        String(permission || "").trim()
+                    )
+                    .filter(Boolean);
 
-            if (normalizedPermissions.length === 0) {
+            if (
+                normalizedPermissions.length === 0
+            ) {
                 res.status(403).json({
                     success: false,
                     message:
@@ -249,11 +284,15 @@ export function requireAnyPermission(...permissions: string[]) {
                 return;
             }
 
-            for (const permission of normalizedPermissions) {
-                const allowed = await hasPermission(
-                    req.user.userId,
-                    permission
-                );
+            for (
+                const permission
+                of normalizedPermissions
+            ) {
+                const allowed =
+                    await hasPermission(
+                        req.user.userId,
+                        permission
+                    );
 
                 if (allowed) {
                     next();
@@ -275,7 +314,9 @@ export function requireAnyPermission(...permissions: string[]) {
 /**
  * Require all of the supplied permissions.
  */
-export function requireAllPermissions(...permissions: string[]) {
+export function requireAllPermissions(
+    ...permissions: string[]
+) {
     return async (
         req: AuthenticatedRequest,
         res: Response,
@@ -285,16 +326,22 @@ export function requireAllPermissions(...permissions: string[]) {
             if (!req.user) {
                 res.status(401).json({
                     success: false,
-                    message: "Authentication required.",
+                    message:
+                        "Authentication required.",
                 });
                 return;
             }
 
-            const normalizedPermissions = permissions
-                .map((permission) => String(permission || "").trim())
-                .filter(Boolean);
+            const normalizedPermissions =
+                permissions
+                    .map((permission) =>
+                        String(permission || "").trim()
+                    )
+                    .filter(Boolean);
 
-            if (normalizedPermissions.length === 0) {
+            if (
+                normalizedPermissions.length === 0
+            ) {
                 res.status(403).json({
                     success: false,
                     message:
@@ -303,11 +350,15 @@ export function requireAllPermissions(...permissions: string[]) {
                 return;
             }
 
-            for (const permission of normalizedPermissions) {
-                const allowed = await hasPermission(
-                    req.user.userId,
-                    permission
-                );
+            for (
+                const permission
+                of normalizedPermissions
+            ) {
+                const allowed =
+                    await hasPermission(
+                        req.user.userId,
+                        permission
+                    );
 
                 if (!allowed) {
                     res.status(403).json({

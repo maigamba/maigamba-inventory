@@ -1,7 +1,10 @@
 import { Router } from "express";
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import Supplier from "../models/Supplier";
+import Product from "../models/Product";
+import Purchase from "../models/Purchase";
+import { generateMongoId } from "../utils/mongoId";
 import { createAuditLog } from "../services/audit.service";
+
 import {
     authenticate,
     requirePermission,
@@ -15,6 +18,8 @@ const router = Router();
 | SUPPLIER ROUTES
 |--------------------------------------------------------------------------
 |
+| MongoDB / Mongoose version
+|
 | Permissions:
 |
 | suppliers.view
@@ -25,10 +30,38 @@ const router = Router();
 */
 
 /**
+ * Remove MongoDB internal fields from API responses.
+ */
+function cleanDocument(document: any) {
+    if (!document) {
+        return document;
+    }
+
+    const {
+        _id,
+        __v,
+        ...data
+    } = document;
+
+    return data;
+}
+
+/**
+ * Escape a value before using it in a MongoDB regex.
+ */
+function escapeRegex(value: string) {
+    return value.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+    );
+}
+
+/**
  * ============================================================================
  * GET ALL SUPPLIERS
  * ============================================================================
  */
+
 router.get(
     "/",
     authenticate,
@@ -39,55 +72,46 @@ router.get(
                 req.query.search ?? ""
             ).trim();
 
-            const suppliers =
-                await prisma.supplier.findMany({
-                    where: search
-                        ? {
-                            OR: [
-                                {
-                                    supplierName: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                                {
-                                    supplierId: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                                {
-                                    phone: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                                {
-                                    email: {
-                                        contains:
-                                            search,
-                                        mode:
-                                            "insensitive",
-                                    },
-                                },
-                            ],
-                        }
-                        : undefined,
+            let query: any = {};
 
-                    orderBy: {
-                        createdAt: "desc",
-                    },
-                });
+            if (search) {
+                const regex = new RegExp(
+                    escapeRegex(search),
+                    "i"
+                );
+
+                query = {
+                    $or: [
+                        {
+                            supplierName:
+                                regex,
+                        },
+                        {
+                            supplierId:
+                                regex,
+                        },
+                        {
+                            phone: regex,
+                        },
+                        {
+                            email: regex,
+                        },
+                    ],
+                };
+            }
+
+            const suppliers =
+                await Supplier.find(query)
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean();
 
             res.json({
                 success: true,
-                data: suppliers,
+                data: suppliers.map(
+                    cleanDocument
+                ),
             });
         } catch (error) {
             next(error);
@@ -100,6 +124,7 @@ router.get(
  * GET SINGLE SUPPLIER
  * ============================================================================
  */
+
 router.get(
     "/:id",
     authenticate,
@@ -107,23 +132,10 @@ router.get(
     async (req, res, next) => {
         try {
             const supplier =
-                await prisma.supplier.findUnique({
-                    where: {
-                        supplierId:
-                            req.params.id,
-                    },
-
-                    include: {
-                        products: true,
-
-                        purchases: {
-                            orderBy: {
-                                purchaseDate:
-                                    "desc",
-                            },
-                        },
-                    },
-                });
+                await Supplier.findOne({
+                    supplierId:
+                        req.params.id,
+                }).lean();
 
             if (!supplier) {
                 res.status(404).json({
@@ -135,9 +147,51 @@ router.get(
                 return;
             }
 
+            /**
+             * MongoDB does not have Prisma's relational include.
+             *
+             * Resolve products and purchases using the supplierId.
+             */
+            const [
+                products,
+                purchases,
+            ] = await Promise.all([
+                Product.find({
+                    supplierId:
+                        supplier.supplierId,
+                })
+                    .sort({
+                        createdAt: -1,
+                    })
+                    .lean(),
+
+                Purchase.find({
+                    supplierId:
+                        supplier.supplierId,
+                })
+                    .sort({
+                        purchaseDate: -1,
+                    })
+                    .lean(),
+            ]);
+
             res.json({
                 success: true,
-                data: supplier,
+                data: {
+                    ...cleanDocument(
+                        supplier
+                    ),
+
+                    products:
+                        products.map(
+                            cleanDocument
+                        ),
+
+                    purchases:
+                        purchases.map(
+                            cleanDocument
+                        ),
+                },
             });
         } catch (error) {
             next(error);
@@ -150,6 +204,7 @@ router.get(
  * CREATE SUPPLIER
  * ============================================================================
  */
+
 router.post(
     "/",
     authenticate,
@@ -171,11 +226,13 @@ router.post(
                 status = "Active",
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Validate supplier name
-            // --------------------------------------------------------------
-
-            if (!supplierName) {
+            /**
+             * Validate supplier name.
+             */
+            if (
+                !supplierName ||
+                !String(supplierName).trim()
+            ) {
                 res.status(400).json({
                     success: false,
                     message:
@@ -185,10 +242,14 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Validate account balance
-            // --------------------------------------------------------------
+            const normalizedSupplierName =
+                String(
+                    supplierName
+                ).trim();
 
+            /**
+             * Validate account balance.
+             */
             const numericAccountBalance =
                 Number(accountBalance);
 
@@ -206,47 +267,80 @@ router.post(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Create supplier
-            // --------------------------------------------------------------
-
+            /**
+             * Create supplier.
+             */
             const supplier =
-                await prisma.supplier.create({
-                    data: {
-                        supplierId:
-                            generateId("SUP"),
+                await Supplier.create({
+                    supplierId:
+                        generateMongoId(
+                            "SUP"
+                        ),
 
-                        supplierName,
+                    supplierName:
+                        normalizedSupplierName,
 
-                        contactPerson,
+                    contactPerson:
+                        contactPerson !==
+                            undefined
+                            ? String(
+                                contactPerson
+                            ).trim()
+                            : undefined,
 
-                        phone,
+                    phone:
+                        phone !== undefined
+                            ? String(
+                                phone
+                            ).trim()
+                            : undefined,
 
-                        email,
+                    email:
+                        email !== undefined
+                            ? String(
+                                email
+                            )
+                                .trim()
+                                .toLowerCase()
+                            : undefined,
 
-                        address,
+                    address:
+                        address !==
+                            undefined
+                            ? String(
+                                address
+                            ).trim()
+                            : undefined,
 
-                        city,
+                    city:
+                        city !== undefined
+                            ? String(
+                                city
+                            ).trim()
+                            : undefined,
 
-                        accountBalance:
-                            numericAccountBalance,
+                    accountBalance:
+                        numericAccountBalance,
 
-                        status,
-                    },
+                    status:
+                        String(
+                            status || "Active"
+                        ).trim(),
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "CREATE",
+                    action:
+                        "CREATE",
 
-                    module: "Suppliers",
+                    module:
+                        "Suppliers",
 
                     recordId:
                         supplier.supplierId,
@@ -255,7 +349,10 @@ router.post(
                         `Supplier ${supplier.supplierName} created. Phone: ${supplier.phone || "N/A"}, email: ${supplier.email || "N/A"}, account balance: ${supplier.accountBalance}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -268,7 +365,9 @@ router.post(
                 success: true,
                 message:
                     "Supplier created successfully",
-                data: supplier,
+                data: cleanDocument(
+                    supplier.toObject()
+                ),
             });
         } catch (error) {
             next(error);
@@ -281,6 +380,7 @@ router.post(
  * UPDATE SUPPLIER
  * ============================================================================
  */
+
 router.put(
     "/:id",
     authenticate,
@@ -291,17 +391,14 @@ router.put(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing supplier
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing supplier.
+             */
             const existing =
-                await prisma.supplier.findUnique({
-                    where: {
-                        supplierId:
-                            req.params.id,
-                    },
-                });
+                await Supplier.findOne({
+                    supplierId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -324,50 +421,88 @@ router.put(
                 status,
             } = req.body;
 
-            // --------------------------------------------------------------
-            // Build update data
-            // --------------------------------------------------------------
+            /**
+             * Build update data.
+             */
+            const updateData: Record<
+                string,
+                unknown
+            > = {};
 
-            const data: any = {
-                ...(supplierName !== undefined && {
-                    supplierName,
-                }),
+            if (
+                supplierName !==
+                undefined
+            ) {
+                if (
+                    !String(
+                        supplierName
+                    ).trim()
+                ) {
+                    res.status(400).json({
+                        success: false,
+                        message:
+                            "Supplier name is required",
+                    });
 
-                ...(contactPerson !== undefined && {
-                    contactPerson,
-                }),
+                    return;
+                }
 
-                ...(phone !== undefined && {
-                    phone,
-                }),
+                updateData.supplierName =
+                    String(
+                        supplierName
+                    ).trim();
+            }
 
-                ...(email !== undefined && {
-                    email,
-                }),
+            if (
+                contactPerson !==
+                undefined
+            ) {
+                updateData.contactPerson =
+                    String(
+                        contactPerson
+                    ).trim();
+            }
 
-                ...(address !== undefined && {
-                    address,
-                }),
+            if (phone !== undefined) {
+                updateData.phone =
+                    String(phone).trim();
+            }
 
-                ...(city !== undefined && {
-                    city,
-                }),
+            if (email !== undefined) {
+                updateData.email =
+                    String(email)
+                        .trim()
+                        .toLowerCase();
+            }
 
-                ...(status !== undefined && {
-                    status,
-                }),
-            };
+            if (address !== undefined) {
+                updateData.address =
+                    String(
+                        address
+                    ).trim();
+            }
 
-            // --------------------------------------------------------------
-            // Validate account balance
-            // --------------------------------------------------------------
+            if (city !== undefined) {
+                updateData.city =
+                    String(city).trim();
+            }
 
+            if (status !== undefined) {
+                updateData.status =
+                    String(status).trim();
+            }
+
+            /**
+             * Validate account balance.
+             */
             if (
                 accountBalance !==
                 undefined
             ) {
                 const numericAccountBalance =
-                    Number(accountBalance);
+                    Number(
+                        accountBalance
+                    );
 
                 if (
                     !Number.isFinite(
@@ -383,36 +518,51 @@ router.put(
                     return;
                 }
 
-                data.accountBalance =
+                updateData.accountBalance =
                     numericAccountBalance;
             }
 
-            // --------------------------------------------------------------
-            // Update supplier
-            // --------------------------------------------------------------
-
+            /**
+             * Update supplier.
+             */
             const supplier =
-                await prisma.supplier.update({
-                    where: {
+                await Supplier.findOneAndUpdate(
+                    {
                         supplierId:
                             req.params.id,
                     },
+                    {
+                        $set: updateData,
+                    },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
 
-                    data,
+            if (!supplier) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Supplier not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "UPDATE",
+                    action:
+                        "UPDATE",
 
-                    module: "Suppliers",
+                    module:
+                        "Suppliers",
 
                     recordId:
                         supplier.supplierId,
@@ -421,7 +571,10 @@ router.put(
                         `Supplier ${supplier.supplierName} updated. Status: ${supplier.status}, account balance: ${supplier.accountBalance}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -434,7 +587,9 @@ router.put(
                 success: true,
                 message:
                     "Supplier updated successfully",
-                data: supplier,
+                data: cleanDocument(
+                    supplier
+                ),
             });
         } catch (error) {
             next(error);
@@ -448,8 +603,8 @@ router.put(
  * ============================================================================
  *
  * Archiving changes the supplier status, so it uses suppliers.update.
- * ============================================================================
  */
+
 router.patch(
     "/:id/archive",
     authenticate,
@@ -460,17 +615,14 @@ router.patch(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing supplier
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing supplier.
+             */
             const existing =
-                await prisma.supplier.findUnique({
-                    where: {
-                        supplierId:
-                            req.params.id,
-                    },
-                });
+                await Supplier.findOne({
+                    supplierId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -482,34 +634,49 @@ router.patch(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Archive supplier
-            // --------------------------------------------------------------
-
+            /**
+             * Archive supplier.
+             */
             const supplier =
-                await prisma.supplier.update({
-                    where: {
+                await Supplier.findOneAndUpdate(
+                    {
                         supplierId:
                             req.params.id,
                     },
-
-                    data: {
-                        status: "Inactive",
+                    {
+                        $set: {
+                            status: "Inactive",
+                        },
                     },
+                    {
+                        returnDocument: "after",
+                        runValidators: true,
+                    }
+                ).lean();
+
+            if (!supplier) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Supplier not found",
                 });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
+                return;
+            }
 
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "ARCHIVE",
+                    action:
+                        "ARCHIVE",
 
-                    module: "Suppliers",
+                    module:
+                        "Suppliers",
 
                     recordId:
                         supplier.supplierId,
@@ -518,7 +685,10 @@ router.patch(
                         `Supplier ${supplier.supplierName} archived. Previous status: ${existing.status}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(
@@ -531,7 +701,9 @@ router.patch(
                 success: true,
                 message:
                     "Supplier archived successfully",
-                data: supplier,
+                data: cleanDocument(
+                    supplier
+                ),
             });
         } catch (error) {
             next(error);
@@ -544,6 +716,7 @@ router.patch(
  * DELETE SUPPLIER
  * ============================================================================
  */
+
 router.delete(
     "/:id",
     authenticate,
@@ -554,17 +727,14 @@ router.delete(
         next
     ) => {
         try {
-            // --------------------------------------------------------------
-            // Find existing supplier
-            // --------------------------------------------------------------
-
+            /**
+             * Find existing supplier.
+             */
             const existing =
-                await prisma.supplier.findUnique({
-                    where: {
-                        supplierId:
-                            req.params.id,
-                    },
-                });
+                await Supplier.findOne({
+                    supplierId:
+                        req.params.id,
+                }).lean();
 
             if (!existing) {
                 res.status(404).json({
@@ -576,29 +746,27 @@ router.delete(
                 return;
             }
 
-            // --------------------------------------------------------------
-            // Delete supplier
-            // --------------------------------------------------------------
-
-            await prisma.supplier.delete({
-                where: {
-                    supplierId:
-                        req.params.id,
-                },
+            /**
+             * Delete supplier.
+             */
+            await Supplier.deleteOne({
+                supplierId:
+                    req.params.id,
             });
 
-            // --------------------------------------------------------------
-            // Audit Trail
-            // --------------------------------------------------------------
-
+            /**
+             * Audit trail.
+             */
             try {
                 await createAuditLog({
                     userId:
                         req.user?.userId,
 
-                    action: "DELETE",
+                    action:
+                        "DELETE",
 
-                    module: "Suppliers",
+                    module:
+                        "Suppliers",
 
                     recordId:
                         existing.supplierId,
@@ -607,7 +775,10 @@ router.delete(
                         `Supplier ${existing.supplierName} deleted. Phone: ${existing.phone || "N/A"}, email: ${existing.email || "N/A"}.`,
 
                     ipAddress:
-                        req.ip,
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
                 });
             } catch (auditError) {
                 console.error(

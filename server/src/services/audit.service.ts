@@ -1,5 +1,5 @@
-import { prisma } from "../config/database";
-import { generateId } from "../utils/ids";
+import AuditLog from "../models/AuditLog";
+import { generateMongoId } from "../utils/mongoId";
 
 interface AuditInput {
     userId?: string;
@@ -10,16 +10,35 @@ interface AuditInput {
     ipAddress?: string;
 }
 
-export async function createAuditLog(input: AuditInput) {
-    return prisma.auditLog.create({
-        data: {
-            logId: generateId("LOG"),
-            userId: input.userId || null,
-            action: input.action,
-            module: input.module,
-            recordId: input.recordId || null,
-            description: input.description || null,
-            ipAddress: input.ipAddress || null,
-        },
+export async function createAuditLog(
+    input: AuditInput
+) {
+    return AuditLog.create({
+        logId: generateMongoId("LOG"),
+
+        userId:
+            input.userId ||
+            undefined,
+
+        action:
+            input.action,
+
+        module:
+            input.module,
+
+        recordId:
+            input.recordId ||
+            undefined,
+
+        description:
+            input.description ||
+            undefined,
+
+        ipAddress:
+            input.ipAddress ||
+            undefined,
+
+        timestamp:
+            new Date(),
     });
 }
