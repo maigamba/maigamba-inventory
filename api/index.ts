@@ -1,6 +1,6 @@
-import app from "../server/src/app";
-import { connectMongoDB } from "../server/src/config/mongodb";
-import { seedPermissions } from "../server/src/services/permission.service";
+import app from "../server/src/app.js";
+import { connectMongoDB } from "../server/src/config/mongodb.js";
+import { seedPermissions } from "../server/src/services/permission.service.js";
 
 let initializationPromise: Promise<void> | null = null;
 
