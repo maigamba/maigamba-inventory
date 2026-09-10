@@ -2,25 +2,38 @@ import app from "../server/src/app.js";
 import { connectMongoDB } from "../server/src/config/mongodb.js";
 import { seedPermissions } from "../server/src/services/permission.service.js";
 
+let initialized = false;
 let initializationPromise: Promise<void> | null = null;
 
 async function initialize() {
-    await connectMongoDB();
-    await seedPermissions();
-}
+    if (initialized) {
+        return;
+    }
 
-export default async function handler(
-    req: Parameters<typeof app>[0],
-    res: Parameters<typeof app>[1]
-) {
     if (!initializationPromise) {
-        initializationPromise = initialize().catch((error) => {
+        initializationPromise = (async () => {
+            await connectMongoDB();
+            await seedPermissions();
+            initialized = true;
+        })().catch((error) => {
             initializationPromise = null;
             throw error;
         });
     }
 
     await initializationPromise;
+}
 
-    return app(req, res);
+export default async function handler(req: any, res: any) {
+    try {
+        await initialize();
+        return app(req, res);
+    } catch (error) {
+        console.error("Vercel API initialization error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "API initialization failed",
+        });
+    }
 }
