@@ -67,3 +67,4 @@ const Permission: Model<IPermission> =
 export default Permission;
 
 
+

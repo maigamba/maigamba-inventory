@@ -104,3 +104,4 @@ const Supplier: Model<ISupplier> =
     );
 
 export default Supplier;
+

@@ -2,8 +2,8 @@ import { Router } from "express";
 import {
     authenticate,
     requirePermission,
-} from "../middleware/auth";
-import { getDashboard } from "../services/dashboard.service";
+} from "../middleware/auth.js";
+import { getDashboard } from "../services/dashboard.service.js";
 
 const router = Router();
 

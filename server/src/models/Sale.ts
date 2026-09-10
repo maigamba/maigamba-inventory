@@ -153,3 +153,4 @@ const Sale: Model<ISale> =
     );
 
 export default Sale;
+

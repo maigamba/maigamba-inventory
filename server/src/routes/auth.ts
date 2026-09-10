@@ -1,8 +1,8 @@
 import { Router } from "express";
 
-import { loginUser } from "../services/auth.service";
-import { createAuditLog } from "../services/audit.service";
-import { getUserPermissions } from "../services/permission.service";
+import { loginUser } from "../services/auth.service.js";
+import { createAuditLog } from "../services/audit.service.js";
+import { getUserPermissions } from "../services/permission.service.js";
 
 const router = Router();
 

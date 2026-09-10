@@ -2,12 +2,12 @@ import "dotenv/config";
 import readline from "node:readline";
 import bcrypt from "bcryptjs";
 
-import User from "./models/User";
+import User from "./models/User.js";
 import {
     connectMongoDB,
     disconnectMongoDB,
-} from "./config/mongodb";
-import { generateMongoId } from "./utils/mongoId";
+} from "./config/mongodb.js";
+import { generateMongoId } from "./utils/mongoId.js";
 
 const ADMIN_EMAIL = "admin@maigamba.com";
 

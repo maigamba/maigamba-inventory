@@ -1,15 +1,15 @@
 import { Router } from "express";
-import Supplier from "../models/Supplier";
-import Product from "../models/Product";
-import Purchase from "../models/Purchase";
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import Supplier from "../models/Supplier.js";
+import Product from "../models/Product.js";
+import Purchase from "../models/Purchase.js";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
 const router = Router();
 
@@ -805,3 +805,4 @@ router.delete(
  */
 
 export default router;
+

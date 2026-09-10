@@ -1,8 +1,8 @@
-import Product from "../models/Product";
-import Customer from "../models/Customer";
-import Sale from "../models/Sale";
-import Purchase from "../models/Purchase";
-import Expense from "../models/Expense";
+import Product from "../models/Product.js";
+import Customer from "../models/Customer.js";
+import Sale from "../models/Sale.js";
+import Purchase from "../models/Purchase.js";
+import Expense from "../models/Expense.js";
 
 export async function getDashboard() {
     const startOfToday = new Date();

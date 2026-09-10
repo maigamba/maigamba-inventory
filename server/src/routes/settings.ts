@@ -1,16 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import Setting from "../models/Setting";
+import Setting from "../models/Setting.js";
 
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
 const router = Router();
 
@@ -950,3 +950,4 @@ router.put(
 */
 
 export default router;
+

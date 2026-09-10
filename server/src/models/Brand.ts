@@ -61,3 +61,4 @@ const Brand: Model<IBrand> =
     );
 
 export default Brand;
+

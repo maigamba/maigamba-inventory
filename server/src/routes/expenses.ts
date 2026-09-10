@@ -1,19 +1,19 @@
 import { Router } from "express";
 import { z } from "zod";
 
-import Expense from "../models/Expense";
-import User from "../models/User";
+import Expense from "../models/Expense.js";
+import User from "../models/User.js";
 
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
-import { validate } from "../middleware/validate";
+import { validate } from "../middleware/validate.js";
 
 const router = Router();
 
@@ -929,3 +929,4 @@ router.delete(
  */
 
 export default router;
+

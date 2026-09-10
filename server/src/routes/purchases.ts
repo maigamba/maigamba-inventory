@@ -2,23 +2,23 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 
-import Purchase from "../models/Purchase";
-import PurchaseItem from "../models/PurchaseItem";
-import Product from "../models/Product";
-import Supplier from "../models/Supplier";
-import User from "../models/User";
-import StockMovement from "../models/StockMovement";
+import Purchase from "../models/Purchase.js";
+import PurchaseItem from "../models/PurchaseItem.js";
+import Product from "../models/Product.js";
+import Supplier from "../models/Supplier.js";
+import User from "../models/User.js";
+import StockMovement from "../models/StockMovement.js";
 
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
-import { validate } from "../middleware/validate";
+import { validate } from "../middleware/validate.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
 const router = Router();
 

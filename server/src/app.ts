@@ -3,25 +3,25 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
-import { errorHandler } from "./middleware/errorHandler";
-import { authenticate } from "./middleware/auth";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { authenticate } from "./middleware/auth.js";
 
 // Routes
-import authRouter from "./routes/auth";
-import productsRouter from "./routes/products";
-import categoriesRouter from "./routes/categories";
-import brandsRouter from "./routes/brands";
-import suppliersRouter from "./routes/suppliers";
-import customersRouter from "./routes/customers";
-import salesRouter from "./routes/sales";
-import purchasesRouter from "./routes/purchases";
-import expensesRouter from "./routes/expenses";
-import returnsRouter from "./routes/returns";
-import stockRouter from "./routes/stock";
-import usersRouter from "./routes/users";
-import settingsRouter from "./routes/settings";
-import dashboardRouter from "./routes/dashboard";
-import auditLogsRouter from "./routes/auditLogs";
+import authRouter from "./routes/auth.js";
+import productsRouter from "./routes/products.js";
+import categoriesRouter from "./routes/categories.js";
+import brandsRouter from "./routes/brands.js";
+import suppliersRouter from "./routes/suppliers.js";
+import customersRouter from "./routes/customers.js";
+import salesRouter from "./routes/sales.js";
+import purchasesRouter from "./routes/purchases.js";
+import expensesRouter from "./routes/expenses.js";
+import returnsRouter from "./routes/returns.js";
+import stockRouter from "./routes/stock.js";
+import usersRouter from "./routes/users.js";
+import settingsRouter from "./routes/settings.js";
+import dashboardRouter from "./routes/dashboard.js";
+import auditLogsRouter from "./routes/auditLogs.js";
 
 const app = express();
 
@@ -43,15 +43,11 @@ const corsOptions: cors.CorsOptions = {
     credentials: true,
 
     origin(origin, callback) {
-        // Allow requests without an Origin header.
-        // This includes health checks and some
-        // server-to-server requests.
         if (!origin) {
             callback(null, true);
             return;
         }
 
-        // Development convenience.
         if (
             !isProduction &&
             allowedOrigins.length === 0
@@ -333,3 +329,4 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 export default app;
+

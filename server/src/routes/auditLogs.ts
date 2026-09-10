@@ -1,12 +1,12 @@
 import { Router } from "express";
 
-import AuditLog from "../models/AuditLog";
-import User from "../models/User";
+import AuditLog from "../models/AuditLog.js";
+import User from "../models/User.js";
 
 import {
     authenticate,
     requirePermission,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
 const router = Router();
 

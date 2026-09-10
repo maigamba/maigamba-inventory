@@ -1,7 +1,7 @@
-import Permission from "../models/Permission";
-import User from "../models/User";
-import UserPermission from "../models/UserPermission";
-import { generateMongoId } from "../utils/mongoId";
+import Permission from "../models/Permission.js";
+import User from "../models/User.js";
+import UserPermission from "../models/UserPermission.js";
+import { generateMongoId } from "../utils/mongoId.js";
 
 /**
  * ============================================================
@@ -721,3 +721,4 @@ export async function setUserPermissions(
 
     return getUserPermissions(normalizedUserId);
 }
+

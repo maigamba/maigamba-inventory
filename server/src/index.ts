@@ -1,11 +1,11 @@
 import "dotenv/config";
 
-import app from "./app";
+import app from "./app.js";
 import {
     connectMongoDB,
     disconnectMongoDB,
-} from "./config/mongodb";
-import { seedPermissions } from "./services/permission.service";
+} from "./config/mongodb.js";
+import { seedPermissions } from "./services/permission.service.js";
 
 const PORT = Number(process.env.PORT) || 5000;
 
@@ -80,3 +80,4 @@ process.on("SIGTERM", () => {
 });
 
 void startServer();
+

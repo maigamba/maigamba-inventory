@@ -102,3 +102,4 @@ const Customer: Model<ICustomer> =
     );
 
 export default Customer;
+

@@ -82,3 +82,4 @@ const SaleItem: Model<ISaleItem> =
     );
 
 export default SaleItem;
+

@@ -1,7 +1,7 @@
-import Product from "../models/Product";
-import StockMovement from "../models/StockMovement";
-import User from "../models/User";
-import { generateMongoId } from "../utils/mongoId";
+import Product from "../models/Product.js";
+import StockMovement from "../models/StockMovement.js";
+import User from "../models/User.js";
+import { generateMongoId } from "../utils/mongoId.js";
 
 type AdjustStockInput = {
     ProductID?: string;

@@ -1,14 +1,14 @@
 import { Router } from "express";
-import Category from "../models/Category";
-import Product from "../models/Product";
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import Category from "../models/Category.js";
+import Product from "../models/Product.js";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
 const router = Router();
 
@@ -683,3 +683,4 @@ router.delete(
  */
 
 export default router;
+

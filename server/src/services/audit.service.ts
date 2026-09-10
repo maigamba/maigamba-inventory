@@ -1,5 +1,5 @@
-import AuditLog from "../models/AuditLog";
-import { generateMongoId } from "../utils/mongoId";
+import AuditLog from "../models/AuditLog.js";
+import { generateMongoId } from "../utils/mongoId.js";
 
 interface AuditInput {
     userId?: string;

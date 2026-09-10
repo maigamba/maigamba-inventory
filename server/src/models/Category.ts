@@ -61,3 +61,4 @@ const Category: Model<ICategory> =
     );
 
 export default Category;
+

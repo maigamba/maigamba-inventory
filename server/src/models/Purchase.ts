@@ -145,3 +145,4 @@ const Purchase: Model<IPurchase> =
     );
 
 export default Purchase;
+

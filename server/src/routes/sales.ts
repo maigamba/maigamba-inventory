@@ -1,32 +1,32 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 
-import Sale from "../models/Sale";
-import SaleItem from "../models/SaleItem";
-import Product from "../models/Product";
-import Customer from "../models/Customer";
-import User from "../models/User";
-import Return from "../models/Return";
-import StockMovement from "../models/StockMovement";
+import Sale from "../models/Sale.js";
+import SaleItem from "../models/SaleItem.js";
+import Product from "../models/Product.js";
+import Customer from "../models/Customer.js";
+import User from "../models/User.js";
+import Return from "../models/Return.js";
+import StockMovement from "../models/StockMovement.js";
 
 import {
     generateMongoId,
-} from "../utils/mongoId";
+} from "../utils/mongoId.js";
 
-import { createAuditLog } from "../services/audit.service";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
-import { validate } from "../middleware/validate";
+import { validate } from "../middleware/validate.js";
 
 import {
     createSaleSchema,
     saleIdSchema,
-} from "../validation/sale.schema";
+} from "../validation/sale.schema.js";
 
 const router = Router();
 

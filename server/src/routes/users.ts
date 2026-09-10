@@ -1,22 +1,22 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 
-import User from "../models/User";
-import Permission from "../models/Permission";
-import UserPermission from "../models/UserPermission";
+import User from "../models/User.js";
+import Permission from "../models/Permission.js";
+import UserPermission from "../models/UserPermission.js";
 
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
-import { PERMISSIONS } from "../services/permission.service";
+import { PERMISSIONS } from "../services/permission.service.js";
 
-import { validate } from "../middleware/validate";
+import { validate } from "../middleware/validate.js";
 
 import {
     createUserSchema,
@@ -24,7 +24,7 @@ import {
     userIdSchema,
     updateUserPermissionsSchema,
     singlePermissionSchema,
-} from "../validation/user.schema";
+} from "../validation/user.schema.js";
 
 const router = Router();
 
@@ -1913,3 +1913,4 @@ router.post(
 */
 
 export default router;
+

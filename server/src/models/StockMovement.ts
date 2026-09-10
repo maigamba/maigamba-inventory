@@ -114,3 +114,4 @@ const StockMovement: Model<IStockMovement> =
     );
 
 export default StockMovement;
+

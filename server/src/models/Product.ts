@@ -181,3 +181,4 @@ const Product: Model<IProduct> =
     );
 
 export default Product;
+

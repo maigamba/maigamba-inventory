@@ -2,23 +2,23 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
 
-import Return from "../models/Return";
-import Product from "../models/Product";
-import Sale from "../models/Sale";
-import Customer from "../models/Customer";
-import User from "../models/User";
-import StockMovement from "../models/StockMovement";
+import Return from "../models/Return.js";
+import Product from "../models/Product.js";
+import Sale from "../models/Sale.js";
+import Customer from "../models/Customer.js";
+import User from "../models/User.js";
+import StockMovement from "../models/StockMovement.js";
 
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
-import { validate } from "../middleware/validate";
+import { validate } from "../middleware/validate.js";
 
 const router = Router();
 
@@ -1609,3 +1609,4 @@ router.delete(
  */
 
 export default router;
+

@@ -1,26 +1,26 @@
 import { Router } from "express";
-import Product from "../models/Product";
-import Category from "../models/Category";
-import Brand from "../models/Brand";
-import Supplier from "../models/Supplier";
-import StockMovement from "../models/StockMovement";
-import { generateMongoId } from "../utils/mongoId";
-import { createAuditLog } from "../services/audit.service";
+import Product from "../models/Product.js";
+import Category from "../models/Category.js";
+import Brand from "../models/Brand.js";
+import Supplier from "../models/Supplier.js";
+import StockMovement from "../models/StockMovement.js";
+import { generateMongoId } from "../utils/mongoId.js";
+import { createAuditLog } from "../services/audit.service.js";
 
 import {
     authenticate,
     requirePermission,
     AuthenticatedRequest,
-} from "../middleware/auth";
+} from "../middleware/auth.js";
 
-import { validate } from "../middleware/validate";
+import { validate } from "../middleware/validate.js";
 
 import {
     createProductSchema,
     updateProductSchema,
     productIdSchema,
     productListSchema,
-} from "../validation/product.schema";
+} from "../validation/product.schema.js";
 
 const router = Router();
 
@@ -918,3 +918,4 @@ router.delete(
  */
 
 export default router;
+
