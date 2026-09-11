@@ -24,16 +24,24 @@ async function initialize() {
     await initializationPromise;
 }
 
-export default async function handler(req: any, res: any) {
+async function handler(req: any, res: any) {
     try {
         await initialize();
+
+        // Vercel sends /api/* requests to this function.
+        // Express expects the /api prefix, so preserve the
+        // original URL when passing the request to Express.
         return app(req, res);
     } catch (error) {
         console.error("Vercel API initialization error:", error);
 
-        return res.status(500).json({
-            success: false,
-            message: "API initialization failed",
-        });
+        if (!res.headersSent) {
+            return res.status(500).json({
+                success: false,
+                message: "API initialization failed",
+            });
+        }
     }
 }
+
+export default handler;
