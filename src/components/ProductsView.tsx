@@ -68,6 +68,7 @@ export const ProductsView: React.FC = () => {
   const [viewingProduct, setViewingProduct] = useState<Product | null>(null);
   const [adjustingProduct, setAdjustingProduct] = useState<Product | null>(null);
   const [archivingProduct, setArchivingProduct] = useState<Product | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
 
   // Hardware Camera & Bulk Import States
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
@@ -412,6 +413,66 @@ export const ProductsView: React.FC = () => {
       } else {
         addToast('error', res.message || 'Failed to archive product.');
       }
+    } finally {
+      setIsSubmittingForm(false);
+    }
+  };
+
+  // Permanently delete product
+  const handleDeleteConfirm = async () => {
+    if (!deletingProduct) return;
+
+    setIsSubmittingForm(true);
+
+    try {
+      const productId = String(
+        (deletingProduct as any).ProductID ??
+        (deletingProduct as any).productId ??
+        (deletingProduct as any).id ??
+        ''
+      ).trim();
+
+      if (!productId) {
+        addToast('error', 'This product has no valid Product ID and cannot be deleted.');
+        return;
+      }
+
+      const res = await inventoryApi.deleteProduct(productId);
+
+      if (res.success) {
+        addToast(
+          'success',
+          `Product "${deletingProduct.ProductName}" deleted successfully.`
+        );
+        setDeletingProduct(null);
+
+        await Promise.all([
+          refreshProducts(),
+          refreshDashboard(),
+        ]);
+
+        const nextTotalPages = Math.max(
+          1,
+          Math.ceil(
+            Math.max(0, filteredProducts.length - 1) / itemsPerPage
+          )
+        );
+
+        if (currentPage > nextTotalPages) {
+          setCurrentPage(nextTotalPages);
+        }
+      } else {
+        addToast(
+          'error',
+          res.message || 'Failed to delete product.'
+        );
+      }
+    } catch (error: any) {
+      console.error('Product delete failed:', error);
+      addToast(
+        'error',
+        error?.message || 'Unable to delete product.'
+      );
     } finally {
       setIsSubmittingForm(false);
     }
@@ -994,6 +1055,16 @@ export const ProductsView: React.FC = () => {
                                 <Archive className="w-3.5 h-3.5" />
                               </button>
                             )}
+
+                            {/* Delete */}
+                            <button
+                              type="button"
+                              onClick={() => setDeletingProduct(p)}
+                              className="p-1.5 text-slate-400 hover:text-white hover:bg-rose-600 rounded-xl transition-colors cursor-pointer"
+                              title="Delete Product Permanently"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1638,6 +1709,18 @@ export const ProductsView: React.FC = () => {
           isLoading={isSubmittingForm}
           onConfirm={handleArchiveConfirm}
           onCancel={() => setArchivingProduct(null)}
+        />
+
+        {/* Delete Product Confirmation Modal */}
+        <ConfirmationModal
+          isOpen={!!deletingProduct}
+          title="Delete Product Permanently"
+          message={`Are you sure you want to permanently delete "${deletingProduct?.ProductName}"? This action cannot be undone. If this product has sales, purchases, returns, or stock-movement history, the server may prevent deletion to protect your records.`}
+          confirmText="Delete Product"
+          isDangerous={true}
+          isLoading={isSubmittingForm}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeletingProduct(null)}
         />
 
         {/* Hardware Camera Photo Capture Modal */}

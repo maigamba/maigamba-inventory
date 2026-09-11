@@ -4,7 +4,6 @@ import Sale from "../models/Sale.js";
 import Return from "../models/Return.js";
 import { generateMongoId } from "../utils/mongoId.js";
 import { createAuditLog } from "../services/audit.service.js";
-
 import {
     authenticate,
     requirePermission,
@@ -13,47 +12,34 @@ import {
 
 const router = Router();
 
-/*
-|--------------------------------------------------------------------------
-| CUSTOMERS ROUTES
-|--------------------------------------------------------------------------
-|
-| MongoDB / Mongoose version
-|
-| Permissions:
-|
-| customers.view
-| customers.create
-| customers.update
-| customers.delete
-|
-*/
-
-/**
- * Remove MongoDB internal fields before returning documents.
- */
-function cleanDocument(document: any) {
-    if (!document) {
-        return document;
-    }
-
-    const {
-        _id,
-        __v,
-        ...data
-    } = document;
-
-    return data;
+function clean(value: unknown): string {
+    return String(value ?? "").trim();
 }
 
-/**
- * Escape a value before using it in a MongoDB regex.
- */
-function escapeRegex(value: string) {
-    return value.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&"
-    );
+function optionalString(value: unknown): string | undefined {
+    const valueString = clean(value);
+    return valueString || undefined;
+}
+
+function customerResponse(customer: any) {
+    if (!customer) return customer;
+
+    return {
+        ...customer,
+        CustomerID: customer.customerId,
+        CustomerName: customer.customerName,
+        Phone: customer.phone ?? "",
+        Email: customer.email ?? "",
+        Address: customer.address ?? "",
+        City: customer.city ?? "",
+        State: customer.state ?? "",
+        Country: customer.country ?? "Nigeria",
+        CustomerType: customer.customerType ?? "Retail",
+        AccountBalance: Number(customer.accountBalance ?? 0),
+        Status: customer.status ?? "Active",
+        CreatedAt: customer.createdAt,
+        UpdatedAt: customer.updatedAt,
+    };
 }
 
 /**
@@ -61,57 +47,36 @@ function escapeRegex(value: string) {
  * GET ALL CUSTOMERS
  * ============================================================================
  */
-
 router.get(
     "/",
     authenticate,
     requirePermission("customers.view"),
     async (req, res, next) => {
         try {
-            const search = String(
-                req.query.search ?? ""
-            ).trim();
+            const search = clean(req.query.search);
 
-            let query: any = {};
+            const filter: Record<string, any> = {};
 
             if (search) {
-                const regex = new RegExp(
-                    escapeRegex(search),
-                    "i"
-                );
-
-                query = {
-                    $or: [
-                        {
-                            customerName:
-                                regex,
-                        },
-                        {
-                            customerId:
-                                regex,
-                        },
-                        {
-                            phone: regex,
-                        },
-                        {
-                            email: regex,
-                        },
-                    ],
-                };
+                filter.$or = [
+                    { customerId: { $regex: search, $options: "i" } },
+                    { customerName: { $regex: search, $options: "i" } },
+                    { phone: { $regex: search, $options: "i" } },
+                    { email: { $regex: search, $options: "i" } },
+                    { city: { $regex: search, $options: "i" } },
+                    { state: { $regex: search, $options: "i" } },
+                    { country: { $regex: search, $options: "i" } },
+                    { address: { $regex: search, $options: "i" } },
+                ];
             }
 
-            const customers =
-                await Customer.find(query)
-                    .sort({
-                        createdAt: -1,
-                    })
-                    .lean();
+            const customers = await Customer.find(filter)
+                .sort({ createdAt: -1 })
+                .lean();
 
             res.json({
                 success: true,
-                data: customers.map(
-                    cleanDocument
-                ),
+                data: customers.map(customerResponse),
             });
         } catch (error) {
             next(error);
@@ -124,79 +89,37 @@ router.get(
  * GET SINGLE CUSTOMER
  * ============================================================================
  */
-
 router.get(
     "/:id",
     authenticate,
     requirePermission("customers.view"),
     async (req, res, next) => {
         try {
-            const customer =
-                await Customer.findOne({
-                    customerId:
-                        req.params.id,
-                }).lean();
+            const customerId = clean(req.params.id);
+
+            const customer = await Customer.findOne({
+                customerId,
+            }).lean();
 
             if (!customer) {
                 res.status(404).json({
                     success: false,
-                    message:
-                        "Customer not found",
+                    message: "Customer not found",
                 });
-
                 return;
             }
 
-            /**
-             * Resolve the customer's sales
-             * and returns from MongoDB.
-             */
-            const [
-                sales,
-                returns,
-            ] = await Promise.all([
-                Sale.find({
-                    customerId:
-                        customer.customerId,
-                })
-                    .sort({
-                        saleDate: -1,
-                    })
-                    .lean(),
-
-                /**
-                 * The original Prisma Customer
-                 * relation did not explicitly show
-                 * the customerId field on Return.
-                 *
-                 * Therefore we first try the normal
-                 * customerId relationship if present.
-                 */
-                Return.find({
-                    customerId:
-                        customer.customerId,
-                })
-                    .sort({
-                        returnDate: -1,
-                    })
-                    .lean(),
+            const [sales, returns] = await Promise.all([
+                Sale.find({ customerId }).sort({ saleDate: -1 }).lean(),
+                Return.find({ customerId }).sort({ returnDate: -1 }).lean(),
             ]);
 
             res.json({
                 success: true,
                 data: {
-                    ...cleanDocument(
-                        customer
-                    ),
-
-                    sales: sales.map(
-                        cleanDocument
-                    ),
-
-                    returns:
-                        returns.map(
-                            cleanDocument
-                        ),
+                    ...customerResponse(customer),
+                    sales,
+                    returns,
                 },
             });
         } catch (error) {
@@ -210,161 +133,87 @@ router.get(
  * CREATE CUSTOMER
  * ============================================================================
  */
-
 router.post(
     "/",
     authenticate,
     requirePermission("customers.create"),
-    async (
-        req: AuthenticatedRequest,
-        res,
-        next
-    ) => {
+    async (req: AuthenticatedRequest, res, next) => {
         try {
-            const {
+            const body = req.body ?? {};
+
+            const customerName = clean(
+                body.customerName ?? body.CustomerName ?? body.name
+            );
+
+            if (!customerName) {
+                res.status(400).json({
+                    success: false,
+                    message: "Customer name is required",
+                });
+                return;
+            }
+
+            const customerId =
+                clean(body.customerId ?? body.CustomerID) ||
+                generateMongoId("CUS");
+
+            const customer = await Customer.create({
+                customerId,
                 customerName,
-                phone,
-                email,
-                address,
-                customerType,
-                accountBalance = 0,
-                status = "Active",
-            } = req.body;
+                phone: optionalString(body.phone ?? body.Phone),
+                email: optionalString(body.email ?? body.Email)?.toLowerCase(),
+                address: optionalString(body.address ?? body.Address),
+                city: optionalString(body.city ?? body.City),
+                state: optionalString(
+                    body.state ?? body.State ?? body.stateName
+                ),
+                country:
+                    optionalString(
+                        body.country ??
+                        body.Country ??
+                        body.countryName ??
+                        body.CountryName
+                    ) || "Nigeria",
+                customerType:
+                    optionalString(
+                        body.customerType ?? body.CustomerType
+                    ) || "Retail",
+                accountBalance: Number(
+                    body.accountBalance ?? body.AccountBalance ?? 0
+                ) || 0,
+                status:
+                    optionalString(body.status ?? body.Status) || "Active",
+            });
 
-            /**
-             * Validate required fields.
-             */
-            if (
-                !customerName ||
-                !String(customerName).trim()
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "Customer name is required",
-                });
+            const authenticatedUserId = clean(req.user?.userId);
 
-                return;
-            }
-
-            /**
-             * Validate account balance.
-             */
-            const numericAccountBalance =
-                Number(accountBalance);
-
-            if (
-                !Number.isFinite(
-                    numericAccountBalance
-                )
-            ) {
-                res.status(400).json({
-                    success: false,
-                    message:
-                        "Account balance must be a valid number",
-                });
-
-                return;
-            }
-
-            /**
-             * Create customer.
-             */
-            const customer =
-                await Customer.create({
-                    customerId:
-                        generateMongoId(
-                            "CUS"
-                        ),
-
-                    customerName:
-                        String(
-                            customerName
-                        ).trim(),
-
-                    phone:
-                        phone !== undefined
-                            ? String(
-                                phone
-                            ).trim()
-                            : undefined,
-
-                    email:
-                        email !== undefined
-                            ? String(
-                                email
-                            )
-                                .trim()
-                                .toLowerCase()
-                            : undefined,
-
-                    address:
-                        address !==
-                            undefined
-                            ? String(
-                                address
-                            ).trim()
-                            : undefined,
-
-                    customerType:
-                        customerType !==
-                            undefined
-                            ? String(
-                                customerType
-                            ).trim()
-                            : undefined,
-
-                    accountBalance:
-                        numericAccountBalance,
-
-                    status:
-                        String(
-                            status || "Active"
-                        ).trim(),
-                });
-
-            /**
-             * Audit trail.
-             */
             try {
                 await createAuditLog({
-                    userId:
-                        req.user?.userId,
-
-                    action:
-                        "CREATE",
-
-                    module:
-                        "Customers",
-
-                    recordId:
-                        customer.customerId,
-
-                    description:
-                        `Customer ${customer.customerName} created. Phone: ${customer.phone || "N/A"}, email: ${customer.email || "N/A"}, account balance: ${customer.accountBalance}.`,
-
-                    ipAddress:
-                        req.ip ||
-                        req.socket
-                            .remoteAddress ||
-                        undefined,
+                    userId: authenticatedUserId,
+                    action: "CREATE",
+                    module: "Customers",
+                    recordId: customer.customerId,
+                    description: `Customer ${customer.customerName} (${customer.customerId}) was created.`,
+                    ipAddress: req.ip,
                 });
             } catch (auditError) {
-                console.error(
-                    "Failed to create customer audit log:",
-                    auditError
-                );
+                console.error("Failed to create customer audit log:", auditError);
             }
 
             res.status(201).json({
                 success: true,
-                message:
-                    "Customer created successfully",
-                data: cleanDocument(
-                    customer.toObject()
-                ),
+                message: "Customer created successfully",
+                data: customerResponse(customer.toObject()),
             });
-        } catch (error) {
+        } catch (error: any) {
+            if (error?.code === 11000) {
+                res.status(409).json({
+                    success: false,
+                    message: "A customer with this ID already exists",
+                });
+                return;
+            }
+
             next(error);
         }
     }
@@ -373,213 +222,157 @@ router.post(
 /**
  * ============================================================================
  * UPDATE CUSTOMER
+ *
+ * IMPORTANT:
+ * This explicitly saves Country, State and City to MongoDB.
  * ============================================================================
  */
-
 router.put(
     "/:id",
     authenticate,
     requirePermission("customers.update"),
-    async (
-        req: AuthenticatedRequest,
-        res,
-        next
-    ) => {
+    async (req: AuthenticatedRequest, res, next) => {
         try {
-            /**
-             * Find existing customer.
-             */
-            const existing =
-                await Customer.findOne({
-                    customerId:
-                        req.params.id,
-                }).lean();
+            const customerId = clean(req.params.id);
+            const body = req.body ?? {};
+
+            if (!customerId) {
+                res.status(400).json({
+                    success: false,
+                    message: "Customer ID is required",
+                });
+                return;
+            }
+
+            const existing = await Customer.findOne({ customerId });
 
             if (!existing) {
                 res.status(404).json({
                     success: false,
-                    message:
-                        "Customer not found",
+                    message: "Customer not found",
                 });
-
                 return;
             }
 
-            const {
+            const customerName = clean(
+                body.customerName ??
+                body.CustomerName ??
+                body.name ??
+                existing.customerName
+            );
+
+            if (!customerName) {
+                res.status(400).json({
+                    success: false,
+                    message: "Customer name is required",
+                });
+                return;
+            }
+
+            // Build the update explicitly so MongoDB receives all location fields.
+            const updateData: Record<string, any> = {
                 customerName,
-                phone,
-                email,
-                address,
-                customerType,
-                accountBalance,
-                status,
-            } = req.body;
 
-            /**
-             * Build update data.
-             */
-            const updateData: Record<
-                string,
-                unknown
-            > = {};
+                phone:
+                    body.phone !== undefined || body.Phone !== undefined
+                        ? optionalString(body.phone ?? body.Phone)
+                        : existing.phone,
 
-            if (
-                customerName !==
-                undefined
-            ) {
-                if (
-                    !String(
-                        customerName
-                    ).trim()
-                ) {
-                    res.status(400).json({
-                        success: false,
-                        message:
-                            "Customer name is required",
-                    });
+                email:
+                    body.email !== undefined || body.Email !== undefined
+                        ? optionalString(body.email ?? body.Email)?.toLowerCase()
+                        : existing.email,
 
-                    return;
+                address:
+                    body.address !== undefined || body.Address !== undefined
+                        ? optionalString(body.address ?? body.Address)
+                        : existing.address,
+
+                city:
+                    body.city !== undefined || body.City !== undefined
+                        ? optionalString(body.city ?? body.City)
+                        : existing.city,
+
+                state:
+                    body.state !== undefined ||
+                        body.State !== undefined ||
+                        body.stateName !== undefined
+                        ? optionalString(
+                            body.state ?? body.State ?? body.stateName
+                        )
+                        : existing.state,
+
+                country:
+                    body.country !== undefined ||
+                        body.Country !== undefined ||
+                        body.countryName !== undefined ||
+                        body.CountryName !== undefined
+                        ? optionalString(
+                            body.country ??
+                            body.Country ??
+                            body.countryName ??
+                            body.CountryName
+                        ) || "Nigeria"
+                        : existing.country || "Nigeria",
+
+                customerType:
+                    body.customerType !== undefined ||
+                        body.CustomerType !== undefined
+                        ? optionalString(
+                            body.customerType ?? body.CustomerType
+                        ) || "Retail"
+                        : existing.customerType || "Retail",
+
+                accountBalance:
+                    body.accountBalance !== undefined ||
+                        body.AccountBalance !== undefined
+                        ? Number(
+                            body.accountBalance ?? body.AccountBalance ?? 0
+                        ) || 0
+                        : existing.accountBalance ?? 0,
+
+                status:
+                    body.status !== undefined || body.Status !== undefined
+                        ? optionalString(body.status ?? body.Status) || "Active"
+                        : existing.status || "Active",
+            };
+
+            const updated = await Customer.findOneAndUpdate(
+                { customerId },
+                { $set: updateData },
+                {
+                    new: true,
+                    runValidators: true,
                 }
+            ).lean();
 
-                updateData.customerName =
-                    String(
-                        customerName
-                    ).trim();
-            }
-
-            if (phone !== undefined) {
-                updateData.phone =
-                    String(phone).trim();
-            }
-
-            if (email !== undefined) {
-                updateData.email =
-                    String(email)
-                        .trim()
-                        .toLowerCase();
-            }
-
-            if (address !== undefined) {
-                updateData.address =
-                    String(
-                        address
-                    ).trim();
-            }
-
-            if (
-                customerType !==
-                undefined
-            ) {
-                updateData.customerType =
-                    String(
-                        customerType
-                    ).trim();
-            }
-
-            if (status !== undefined) {
-                updateData.status =
-                    String(status).trim();
-            }
-
-            /**
-             * Validate account balance
-             * when it is supplied.
-             */
-            if (
-                accountBalance !==
-                undefined
-            ) {
-                const numericAccountBalance =
-                    Number(
-                        accountBalance
-                    );
-
-                if (
-                    !Number.isFinite(
-                        numericAccountBalance
-                    )
-                ) {
-                    res.status(400).json({
-                        success: false,
-                        message:
-                            "Account balance must be a valid number",
-                    });
-
-                    return;
-                }
-
-                updateData.accountBalance =
-                    numericAccountBalance;
-            }
-
-            /**
-             * Update customer.
-             */
-            const customer =
-                await Customer.findOneAndUpdate(
-                    {
-                        customerId:
-                            req.params.id,
-                    },
-                    {
-                        $set: updateData,
-                    },
-                    {
-                        returnDocument: "after",
-                        runValidators: true,
-                    }
-                ).lean();
-
-            if (!customer) {
+            if (!updated) {
                 res.status(404).json({
                     success: false,
-                    message:
-                        "Customer not found",
+                    message: "Customer not found after update",
                 });
-
                 return;
             }
 
-            /**
-             * Audit trail.
-             */
+            const authenticatedUserId = clean(req.user?.userId);
+
             try {
                 await createAuditLog({
-                    userId:
-                        req.user?.userId,
-
-                    action:
-                        "UPDATE",
-
-                    module:
-                        "Customers",
-
-                    recordId:
-                        customer.customerId,
-
-                    description:
-                        `Customer ${customer.customerName} updated. Status: ${customer.status}, account balance: ${customer.accountBalance}.`,
-
-                    ipAddress:
-                        req.ip ||
-                        req.socket
-                            .remoteAddress ||
-                        undefined,
+                    userId: authenticatedUserId,
+                    action: "UPDATE",
+                    module: "Customers",
+                    recordId: customerId,
+                    description: `Customer ${updated.customerName} (${customerId}) was updated.`,
+                    ipAddress: req.ip,
                 });
             } catch (auditError) {
-                console.error(
-                    "Failed to create customer update audit log:",
-                    auditError
-                );
+                console.error("Failed to create customer audit log:", auditError);
             }
 
             res.json({
                 success: true,
-                message:
-                    "Customer updated successfully",
-                data: cleanDocument(
-                    customer
-                ),
+                message: "Customer updated successfully",
+                data: customerResponse(updated),
             });
         } catch (error) {
             next(error);
@@ -591,209 +384,53 @@ router.put(
  * ============================================================================
  * ARCHIVE CUSTOMER
  * ============================================================================
- *
- * Archive is treated as an update because
- * it changes the customer's status.
  */
-
 router.patch(
     "/:id/archive",
     authenticate,
     requirePermission("customers.update"),
-    async (
-        req: AuthenticatedRequest,
-        res,
-        next
-    ) => {
+    async (req: AuthenticatedRequest, res, next) => {
         try {
-            /**
-             * Find existing customer.
-             */
-            const existing =
-                await Customer.findOne({
-                    customerId:
-                        req.params.id,
-                }).lean();
+            const customerId = clean(req.params.id);
 
-            if (!existing) {
-                res.status(404).json({
-                    success: false,
-                    message:
-                        "Customer not found",
-                });
-
-                return;
-            }
-
-            /**
-             * Archive customer.
-             */
-            const customer =
-                await Customer.findOneAndUpdate(
-                    {
-                        customerId:
-                            req.params.id,
-                    },
-                    {
-                        $set: {
-                            status: "Inactive",
-                        },
-                    },
-                    {
-                        returnDocument: "after",
-                        runValidators: true,
-                    }
-                ).lean();
+            const customer = await Customer.findOneAndUpdate(
+                { customerId },
+                { $set: { status: "Archived" } },
+                { new: true, runValidators: true }
+            ).lean();
 
             if (!customer) {
                 res.status(404).json({
                     success: false,
-                    message:
-                        "Customer not found",
+                    message: "Customer not found",
                 });
-
                 return;
             }
 
-            /**
-             * Audit trail.
-             */
+            const authenticatedUserId = clean(req.user?.userId);
+
             try {
                 await createAuditLog({
-                    userId:
-                        req.user?.userId,
-
-                    action:
-                        "ARCHIVE",
-
-                    module:
-                        "Customers",
-
-                    recordId:
-                        customer.customerId,
-
-                    description:
-                        `Customer ${customer.customerName} archived. Previous status: ${existing.status}.`,
-
-                    ipAddress:
-                        req.ip ||
-                        req.socket
-                            .remoteAddress ||
-                        undefined,
+                    userId: authenticatedUserId,
+                    action: "ARCHIVE",
+                    module: "Customers",
+                    recordId: customerId,
+                    description: `Customer ${customer.customerName} (${customerId}) was archived.`,
+                    ipAddress: req.ip,
                 });
             } catch (auditError) {
-                console.error(
-                    "Failed to create customer archive audit log:",
-                    auditError
-                );
+                console.error("Failed to create customer archive audit log:", auditError);
             }
 
             res.json({
                 success: true,
-                message:
-                    "Customer archived successfully",
-                data: cleanDocument(
-                    customer
-                ),
+                message: "Customer archived successfully",
+                data: customerResponse(customer),
             });
         } catch (error) {
             next(error);
         }
     }
 );
-
-/**
- * ============================================================================
- * DELETE CUSTOMER
- * ============================================================================
- */
-
-router.delete(
-    "/:id",
-    authenticate,
-    requirePermission("customers.delete"),
-    async (
-        req: AuthenticatedRequest,
-        res,
-        next
-    ) => {
-        try {
-            /**
-             * Find existing customer.
-             */
-            const existing =
-                await Customer.findOne({
-                    customerId:
-                        req.params.id,
-                }).lean();
-
-            if (!existing) {
-                res.status(404).json({
-                    success: false,
-                    message:
-                        "Customer not found",
-                });
-
-                return;
-            }
-
-            /**
-             * Delete customer.
-             */
-            await Customer.deleteOne({
-                customerId:
-                    req.params.id,
-            });
-
-            /**
-             * Audit trail.
-             */
-            try {
-                await createAuditLog({
-                    userId:
-                        req.user?.userId,
-
-                    action:
-                        "DELETE",
-
-                    module:
-                        "Customers",
-
-                    recordId:
-                        existing.customerId,
-
-                    description:
-                        `Customer ${existing.customerName} deleted. Phone: ${existing.phone || "N/A"}, email: ${existing.email || "N/A"}.`,
-
-                    ipAddress:
-                        req.ip ||
-                        req.socket
-                            .remoteAddress ||
-                        undefined,
-                });
-            } catch (auditError) {
-                console.error(
-                    "Failed to create customer delete audit log:",
-                    auditError
-                );
-            }
-
-            res.json({
-                success: true,
-                message:
-                    "Customer deleted successfully",
-            });
-        } catch (error) {
-            next(error);
-        }
-    }
-);
-
-/**
- * ============================================================================
- * EXPORT ROUTER
- * ============================================================================
- */
 
 export default router;
-

@@ -6,6 +6,9 @@ export interface ICustomer extends Document {
     phone?: string;
     email?: string;
     address?: string;
+    city?: string;
+    state?: string;
+    country?: string;
     customerType: string;
     accountBalance: number;
     status: string;
@@ -48,6 +51,24 @@ const customerSchema = new Schema<ICustomer>(
             default: undefined,
         },
 
+        city: {
+            type: String,
+            trim: true,
+            default: undefined,
+        },
+
+        state: {
+            type: String,
+            trim: true,
+            default: undefined,
+        },
+
+        country: {
+            type: String,
+            trim: true,
+            default: "Nigeria",
+        },
+
         customerType: {
             type: String,
             required: true,
@@ -64,7 +85,6 @@ const customerSchema = new Schema<ICustomer>(
             type: String,
             required: true,
             default: "Active",
-
             trim: true,
         },
     },
@@ -94,6 +114,18 @@ customerSchema.index({
     customerType: 1,
 });
 
+customerSchema.index({
+    state: 1,
+});
+
+customerSchema.index({
+    country: 1,
+});
+
+customerSchema.index({
+    city: 1,
+});
+
 const Customer: Model<ICustomer> =
     mongoose.models.Customer ||
     mongoose.model<ICustomer>(
@@ -102,4 +134,3 @@ const Customer: Model<ICustomer> =
     );
 
 export default Customer;
-

@@ -183,20 +183,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Authentication persistence
-  // Remember Me ON  -> localStorage + explicit marker (persistent)
-  // Remember Me OFF -> sessionStorage only (current browser session)
+  // Safe client-side auth restore
   useEffect(() => {
     try {
-      const sessionUser = sessionStorage.getItem('maigamba_user_session');
-      const remembered = localStorage.getItem('maigamba_remember_me') === 'true';
-      const savedUser = sessionUser ?? (remembered ? localStorage.getItem('maigamba_user') : null);
-
-      // Clear legacy remembered sessions that were created before this flag existed.
-      if (!remembered) {
-        localStorage.removeItem('maigamba_user');
-      }
-
+      const savedUser = localStorage.getItem('maigamba_user');
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
         if (parsed && parsed.Email) {
@@ -204,66 +194,32 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
     } catch {
-      try {
-        sessionStorage.removeItem('maigamba_user_session');
-        localStorage.removeItem('maigamba_user');
-        localStorage.removeItem('maigamba_remember_me');
-      } catch {
-        // Ignore storage cleanup errors.
-      }
+      // ignore
     } finally {
       setAuthChecked(true);
     }
   }, []);
 
-  const login = useCallback(
-    (user: UserProfile, remember: boolean) => {
-      setCurrentUser(user);
-
+  const login = useCallback((user: UserProfile, remember: boolean) => {
+    setCurrentUser(user);
+    if (remember) {
       try {
-        // Remove any previous remembered/current session first.
-        localStorage.removeItem('maigamba_user');
-        localStorage.removeItem('maigamba_remember_me');
-        sessionStorage.removeItem('maigamba_user_session');
-
-        if (remember) {
-          localStorage.setItem('maigamba_user', JSON.stringify(user));
-          localStorage.setItem('maigamba_remember_me', 'true');
-        } else {
-          sessionStorage.setItem(
-            'maigamba_user_session',
-            JSON.stringify(user)
-          );
-        }
-      } catch (error) {
-        console.warn('Unable to persist authentication session:', error);
+        localStorage.setItem('maigamba_user', JSON.stringify(user));
+      } catch {
+        // ignore
       }
-
-      addToast(
-        'success',
-        `Signed in as ${user.FullName} (${user.Role})`,
-        'Welcome Back'
-      );
-    },
-    [addToast]
-  );
+    }
+    addToast('success', `Signed in as ${user.FullName} (${user.Role})`, 'Welcome Back');
+  }, [addToast]);
 
   const logout = useCallback(() => {
     setCurrentUser(null);
-
     try {
       localStorage.removeItem('maigamba_user');
-      localStorage.removeItem('maigamba_remember_me');
-      sessionStorage.removeItem('maigamba_user_session');
     } catch {
-      // Ignore storage cleanup errors.
+      // ignore
     }
-
-    addToast(
-      'info',
-      'You have been signed out successfully.',
-      'Session Ended'
-    );
+    addToast('info', 'You have been signed out successfully.', 'Session Ended');
   }, [addToast]);
 
   // Entity Refresh Handlers
@@ -369,7 +325,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setLoading((prev) => ({ ...prev, suppliers: false }));
   }, []);
 
-  // Normalize PostgreSQL customer records into the UI Customer shape.
+  // Normalize MongoDB customer records into the UI Customer shape.
   // Supports both camelCase PostgreSQL fields and legacy PascalCase fields.
   const normalizeCustomer = useCallback((item: any): Customer => {
     const customerId = String(
@@ -394,6 +350,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       Phone: String(item?.Phone ?? item?.phone ?? '').trim(),
       Email: String(item?.Email ?? item?.email ?? '').trim(),
       Address: String(item?.Address ?? item?.address ?? '').trim(),
+      City: String(item?.City ?? item?.city ?? '').trim(),
+      State: String(item?.State ?? item?.state ?? item?.stateName ?? '').trim(),
+      Country: String(item?.Country ?? item?.country ?? item?.countryName ?? 'Nigeria').trim() || 'Nigeria',
       CustomerType: String(
         item?.CustomerType ??
         item?.customerType ??
@@ -429,7 +388,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           .filter((customer: Customer) => Boolean(customer.CustomerID));
 
         console.log(
-          `[Maigamba] Customers loaded from PostgreSQL: ${normalizedCustomers.length}`,
+          `[Maigamba] Customers loaded from MongoDB Atlas: ${normalizedCustomers.length}`,
           normalizedCustomers
         );
 

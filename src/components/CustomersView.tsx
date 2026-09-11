@@ -105,6 +105,7 @@ export const CustomersView: React.FC = () => {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
   const [archivingCustomer, setArchivingCustomer] = useState<Customer | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<CustomerForm>(emptyForm);
 
@@ -209,6 +210,45 @@ export const CustomersView: React.FC = () => {
     } catch (error: any) {
       console.error('Customer archive failed:', error);
       addToast('error', error?.message || 'Unable to archive customer.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingCustomer?.CustomerID) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const customerId = String(deletingCustomer.CustomerID).trim();
+
+      if (!customerId) {
+        addToast('error', 'This customer has no valid Customer ID and cannot be deleted.');
+        return;
+      }
+
+      const response = await inventoryApi.deleteCustomer(customerId);
+
+      if (!response.success) {
+        addToast('error', response.message || 'Failed to delete customer.');
+        return;
+      }
+
+      addToast(
+        'success',
+        `Customer "${deletingCustomer.CustomerName}" deleted permanently.`
+      );
+
+      setDeletingCustomer(null);
+      setViewingCustomer(null);
+      await refreshCustomers();
+    } catch (error: any) {
+      console.error('Customer delete failed:', error);
+      addToast(
+        'error',
+        error?.message || 'Unable to delete customer.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -634,6 +674,15 @@ export const CustomersView: React.FC = () => {
                               <Archive className="h-4 w-4" />
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => setDeletingCustomer(customer)}
+                            className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-700"
+                            title="Delete customer permanently"
+                          >
+                            <UserRoundX className="h-4 w-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -960,6 +1009,16 @@ export const CustomersView: React.FC = () => {
         isLoading={isSubmitting}
         onConfirm={handleArchiveConfirm}
         onCancel={() => !isSubmitting && setArchivingCustomer(null)}
+      />
+
+      <ConfirmationModal
+        isOpen={!!deletingCustomer}
+        title="Delete Customer Permanently"
+        message={`Are you sure you want to permanently delete "${deletingCustomer?.CustomerName}"? This action cannot be undone.`}
+        confirmText="Delete Permanently"
+        isLoading={isSubmitting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => !isSubmitting && setDeletingCustomer(null)}
       />
     </div>
   );

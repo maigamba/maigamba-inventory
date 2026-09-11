@@ -4,6 +4,7 @@ import { Product, Sale, Customer } from '../types/inventory';
 import { inventoryApi } from '../services/api';
 import { formatCurrency, formatDate, parseNumber } from '../utils/formatters';
 import { ReceiptModal } from './ReceiptModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { playScannerBeep } from '../utils/audioBeep';
 import { getProductImageUrl } from '../utils/productImages';
 import {
@@ -71,6 +72,7 @@ export const POSView: React.FC = () => {
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [newlyCreatedCustomer, setNewlyCreatedCustomer] = useState<Customer | null>(null);
   const [saleDiscount, setSaleDiscount] = useState<number>(0);
   const [taxAmount, setTaxAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<string>('Cash');
@@ -81,10 +83,17 @@ export const POSView: React.FC = () => {
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
+  const [newCustomerEmail, setNewCustomerEmail] = useState('');
+  const [newCustomerType, setNewCustomerType] = useState('Individual');
+  const [newCustomerCountry, setNewCustomerCountry] = useState('Nigeria');
+  const [newCustomerState, setNewCustomerState] = useState('');
+  const [newCustomerCity, setNewCustomerCity] = useState('');
+  const [newCustomerAddress, setNewCustomerAddress] = useState('');
 
   // Receipt Modal for newly completed sale or viewing historic sale
   const [activeReceiptSale, setActiveReceiptSale] = useState<Sale | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [deletingSale, setDeletingSale] = useState<Sale | null>(null);
 
   // Barcode Scanner Integration State
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -138,6 +147,15 @@ export const POSView: React.FC = () => {
     if (effectivePaid > 0) return 'Partial';
     return 'Credit';
   }, [grandTotal, effectivePaid]);
+
+  // The customer selected here is the customer who will be attached to the sale.
+  const selectedCustomer = useMemo(
+    () =>
+      newlyCreatedCustomer?.CustomerID === selectedCustomerId
+        ? newlyCreatedCustomer
+        : customers.find((customer) => customer.CustomerID === selectedCustomerId) || null,
+    [customers, selectedCustomerId, newlyCreatedCustomer]
+  );
 
   // Add product to cart
   const addToCart = useCallback((product: Product) => {
@@ -297,30 +315,88 @@ export const POSView: React.FC = () => {
     setAmountPaid('');
   };
 
-  // Quick Customer Creation
+  // Customer Creation
+  const resetCustomerForm = () => {
+    setNewCustomerName('');
+    setNewCustomerPhone('');
+    setNewCustomerEmail('');
+    setNewCustomerType('Individual');
+    setNewCustomerCountry('Nigeria');
+    setNewCustomerState('');
+    setNewCustomerCity('');
+    setNewCustomerAddress('');
+  };
+
+  const openCustomerForm = () => {
+    resetCustomerForm();
+    setIsAddCustomerOpen(true);
+  };
+
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCustomerName.trim()) return;
+
+    if (!newCustomerName.trim()) {
+      addToast('warning', 'Customer full name is required.');
+      return;
+    }
+
+    if (!newCustomerCountry.trim()) {
+      addToast('warning', 'Country is required.');
+      return;
+    }
+
+    const customerId = `CUST-${Date.now().toString().slice(-8)}`;
 
     const customerPayload = {
-      CustomerID: `CUST-${Date.now().toString().slice(-6)}`,
+      CustomerID: customerId,
       CustomerName: newCustomerName.trim(),
       Phone: newCustomerPhone.trim(),
-      CustomerType: 'Retail',
+      Email: newCustomerEmail.trim(),
+      CustomerType: newCustomerType,
+      Country: newCustomerCountry.trim(),
+      State: newCustomerState.trim(),
+      City: newCustomerCity.trim(),
+      Address: newCustomerAddress.trim(),
+      AccountBalance: 0,
       Status: 'Active',
       CreatedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
     };
 
-    const res = await inventoryApi.saveRecord('Customers', customerPayload);
-    if (res.success) {
-      addToast('success', `Customer "${customerPayload.CustomerName}" created.`);
-      await refreshCustomers();
-      setSelectedCustomerId(customerPayload.CustomerID);
-      setIsAddCustomerOpen(false);
-      setNewCustomerName('');
-      setNewCustomerPhone('');
-    } else {
-      addToast('error', res.message || 'Failed to create customer.');
+    try {
+      const res = await inventoryApi.saveRecord('Customers', customerPayload);
+
+      if (res.success) {
+        // Select the newly created customer immediately so the next checkout
+        // is linked to this customer's CustomerID.
+        const createdCustomer: Customer = {
+          CustomerID: customerId,
+          CustomerName: customerPayload.CustomerName,
+          Phone: customerPayload.Phone,
+          Email: customerPayload.Email,
+          CustomerType: customerPayload.CustomerType,
+          Country: customerPayload.Country,
+          State: customerPayload.State,
+          City: customerPayload.City,
+          Address: customerPayload.Address,
+          AccountBalance: 0,
+          Status: 'Active',
+          CreatedAt: customerPayload.CreatedAt,
+        };
+
+        // Keep the newly created customer available immediately, even while
+        // refreshCustomers() is fetching the updated customer list.
+        setNewlyCreatedCustomer(createdCustomer);
+        setSelectedCustomerId(customerId);
+        setIsAddCustomerOpen(false);
+        resetCustomerForm();
+        addToast('success', `Customer "${customerPayload.CustomerName}" created and selected for this sale.`);
+        await refreshCustomers();
+      } else {
+        addToast('error', res.message || 'Failed to create customer.');
+      }
+    } catch (error: any) {
+      console.error('Customer creation failed:', error);
+      addToast('error', error?.message || 'Failed to create customer.');
     }
   };
 
@@ -328,6 +404,13 @@ export const POSView: React.FC = () => {
   const handleCheckout = async () => {
     if (cart.length === 0) {
       addToast('warning', 'Cart is empty. Add products before checking out.');
+      return;
+    }
+
+    // If a saved customer is selected, make sure that customer still exists
+    // in the current customer list before creating the sale.
+    if (selectedCustomerId && !selectedCustomer) {
+      addToast('error', 'The selected customer could not be found. Please select the customer again.');
       return;
     }
 
@@ -355,6 +438,9 @@ export const POSView: React.FC = () => {
 
       const finalPaid = amountPaid === '' ? grandTotal : Number(amountPaid) || 0;
 
+      // IMPORTANT: the saved customer's CustomerID is what links this sale
+      // to the customer record. The backend can then retrieve the customer's
+      // name, phone, city, state and country from the Customers collection.
       const salePayload = {
         customerId: selectedCustomerId || 'CUST-WALKIN',
         amountPaid: finalPaid,
@@ -404,6 +490,65 @@ export const POSView: React.FC = () => {
       } else {
         addToast('error', res.message || 'Failed to complete sale.');
       }
+    } catch (error: any) {
+      console.error('[POS] Complete Sale error:', error);
+
+      const errorMessage =
+        error?.response?.data?.message ||
+        error?.message ||
+        (typeof error === 'string' ? error : '') ||
+        'Unable to complete the sale. Please try again.';
+
+      addToast('error', `Sale failed: ${errorMessage}`);
+    } finally {
+      setIsSubmittingSale(false);
+    }
+  };
+
+  // Permanently delete a sale from Sales History.
+  const handleDeleteSaleConfirm = async () => {
+    if (!deletingSale?.SaleID) return;
+
+    setIsSubmittingSale(true);
+
+    try {
+      const saleId = String(deletingSale.SaleID).trim();
+
+      if (!saleId) {
+        addToast('error', 'This sale has no valid Sale ID and cannot be deleted.');
+        return;
+      }
+
+      const response = await inventoryApi.deleteSale(saleId);
+
+      if (!response.success) {
+        addToast('error', response.message || 'Failed to delete sale.');
+        return;
+      }
+
+      addToast(
+        'success',
+        `Sale "${deletingSale.InvoiceNumber || saleId}" deleted successfully.`
+      );
+
+      setDeletingSale(null);
+      setIsReceiptOpen(false);
+      setActiveReceiptSale(null);
+
+      await Promise.all([
+        refreshSales(),
+        refreshProducts(),
+        refreshStockMovements(),
+        refreshDashboard(),
+      ]);
+    } catch (error: any) {
+      console.error('[POS] Sale delete failed:', error);
+      addToast(
+        'error',
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to delete sale.'
+      );
     } finally {
       setIsSubmittingSale(false);
     }
@@ -804,26 +949,62 @@ export const POSView: React.FC = () => {
                     </label>
                     <button
                       type="button"
-                      onClick={() => setIsAddCustomerOpen(true)}
+                      onClick={openCustomerForm}
                       className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
                     >
                       <UserPlus className="h-3.5 w-3.5" />
-                      New customer
+                      Add customer details
                     </button>
                   </div>
 
                   <select
                     value={selectedCustomerId}
-                    onChange={(e) => setSelectedCustomerId(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedCustomerId(value);
+                      setNewlyCreatedCustomer((current) =>
+                        current?.CustomerID === value ? current : null
+                      );
+                      if (!value) openCustomerForm();
+                    }}
                     className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
                   >
-                    <option value="">Walk-in Retail Customer</option>
+                    <option value="">Walk-in Retail Customer — add details</option>
                     {customers.map((c) => (
                       <option key={c.CustomerID} value={c.CustomerID}>
                         {c.CustomerName} {c.Phone ? `(${c.Phone})` : ''}
                       </option>
                     ))}
                   </select>
+
+                  {selectedCustomer ? (
+                    <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
+                          <User className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-blue-950">
+                            Selling to {selectedCustomer.CustomerName}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-blue-700">
+                            {[selectedCustomer.City, selectedCustomer.State, selectedCustomer.Country]
+                              .filter(Boolean)
+                              .join(', ') || 'Customer location not provided'}
+                          </p>
+                          {selectedCustomer.Phone && (
+                            <p className="mt-0.5 text-[11px] text-blue-600">
+                              {selectedCustomer.Phone}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      Walk-in sale — no saved customer profile is attached.
+                    </p>
+                  )}
                 </div>
 
                 <div className="max-h-[340px] overflow-y-auto px-4">
@@ -1210,18 +1391,31 @@ export const POSView: React.FC = () => {
                             {sale.PaymentStatus || 'Paid'}
                           </span>
                         </td>
-                        <td className="px-5 py-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveReceiptSale(sale);
-                              setIsReceiptOpen(true);
-                            }}
-                            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            <Printer className="h-3.5 w-3.5" />
-                            Receipt
-                          </button>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveReceiptSale(sale);
+                                setIsReceiptOpen(true);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                              title="View or print receipt"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                              Receipt
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setDeletingSale(sale)}
+                              className="inline-flex items-center justify-center rounded-xl border border-rose-200 bg-white p-2 text-rose-500 transition hover:bg-rose-50 hover:text-rose-700"
+                              title="Delete sale permanently"
+                              aria-label={`Delete sale ${sale.InvoiceNumber || sale.SaleID}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1294,73 +1488,92 @@ export const POSView: React.FC = () => {
           </section>
         )}
 
-        {/* Quick Add Customer Modal */}
+        {/* Customer Details Modal */}
         {isAddCustomerOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                <div>
-                  <h3 className="text-base font-semibold text-slate-950">New Customer</h3>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    Create a customer without leaving the POS.
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                    <User className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-950">Customer Details</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">Capture the buyer's information for this sale and location analytics.</p>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsAddCustomerOpen(false)}
-                  className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800"
-                >
+                <button type="button" onClick={() => setIsAddCustomerOpen(false)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-800">
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleQuickAddCustomer} className="space-y-4 p-5">
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                    Customer full name *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newCustomerName}
-                    onChange={(e) => setNewCustomerName(e.target.value)}
-                    placeholder="Alhaji Danladi / Zenith Bank PLC"
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                  />
+              <form onSubmit={handleQuickAddCustomer} className="max-h-[75vh] overflow-y-auto p-5">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Full Name *</label>
+                    <input type="text" required autoFocus value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} placeholder="Customer full name" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Phone Number</label>
+                    <input type="tel" value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} placeholder="+234 803 123 4567" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Email Address</label>
+                    <input type="email" value={newCustomerEmail} onChange={(e) => setNewCustomerEmail(e.target.value)} placeholder="customer@example.com" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Customer Type</label>
+                    <select value={newCustomerType} onChange={(e) => setNewCustomerType(e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50">
+                      <option value="Individual">Individual</option>
+                      <option value="Business">Business</option>
+                      <option value="Government">Government</option>
+                      <option value="Retail">Retail</option>
+                      <option value="Wholesale">Wholesale</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Country *</label>
+                    <input type="text" required value={newCustomerCountry} onChange={(e) => setNewCustomerCountry(e.target.value)} placeholder="Nigeria" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">State</label>
+                    <input type="text" value={newCustomerState} onChange={(e) => setNewCustomerState(e.target.value)} placeholder="Kano, Kaduna, Katsina..." className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">City</label>
+                    <input type="text" value={newCustomerCity} onChange={(e) => setNewCustomerCity(e.target.value)} placeholder="Kano City" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-700">Physical Address</label>
+                    <textarea rows={3} value={newCustomerAddress} onChange={(e) => setNewCustomerAddress(e.target.value)} placeholder="Street, area, building or office address" className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none transition focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50" />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-700">
-                    Phone number
-                  </label>
-                  <input
-                    type="text"
-                    value={newCustomerPhone}
-                    onChange={(e) => setNewCustomerPhone(e.target.value)}
-                    placeholder="+234 803 123 4567"
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm outline-none focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                  />
+                <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                  <p className="text-xs leading-5 text-blue-800">Customer state and country will be used by the Dashboard to show top buyer locations.</p>
                 </div>
 
-                <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddCustomerOpen(false)}
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                  >
-                    Save Customer
+                <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+                  <button type="button" onClick={() => setIsAddCustomerOpen(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">Cancel</button>
+                  <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700">
+                    <UserPlus className="h-4 w-4" />
+                    Save Customer & Select
                   </button>
                 </div>
               </form>
             </div>
           </div>
         )}
+
+        <ConfirmationModal
+          isOpen={!!deletingSale}
+          title="Delete Sale Permanently"
+          message={`Are you sure you want to permanently delete "${deletingSale?.InvoiceNumber || deletingSale?.SaleID}"? This action cannot be undone.`}
+          confirmText="Delete Permanently"
+          isLoading={isSubmittingSale}
+          onConfirm={handleDeleteSaleConfirm}
+          onCancel={() => !isSubmittingSale && setDeletingSale(null)}
+        />
 
         <ReceiptModal
           sale={activeReceiptSale}

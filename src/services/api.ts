@@ -11,19 +11,21 @@ export interface ApiResponse<T = any> {
 }
 
 /**
- * Authentication storage
+ * =========================================================
+ * AUTHENTICATION STORAGE
+ * =========================================================
  *
  * Remember Me OFF:
  *   - token is stored in sessionStorage
- *   - browser session ends when the browser is closed
+ *   - browser session ends when browser is closed
  *
  * Remember Me ON:
  *   - token is stored in localStorage
  *   - token survives browser restarts
  *
- * Older versions of the app always stored the token in localStorage.
- * We intentionally ignore/remove that old token unless the explicit
- * Remember Me flag exists.
+ * Older versions of the app always stored the token in
+ * localStorage. We intentionally remove legacy tokens unless
+ * Remember Me is explicitly enabled.
  */
 export function getAuthToken(): string | null {
   const sessionToken = sessionStorage.getItem(TOKEN_KEY);
@@ -32,14 +34,14 @@ export function getAuthToken(): string | null {
     return sessionToken;
   }
 
-  const remembered = localStorage.getItem(REMEMBER_KEY) === "true";
+  const remembered =
+    localStorage.getItem(REMEMBER_KEY) === "true";
 
   if (remembered) {
     return localStorage.getItem(TOKEN_KEY);
   }
 
-  // Remove legacy persistent tokens that were created before
-  // Remember Me was implemented correctly.
+  // Remove legacy persistent tokens.
   localStorage.removeItem(TOKEN_KEY);
 
   return null;
@@ -68,6 +70,11 @@ export function clearAuthToken(): void {
   localStorage.removeItem(REMEMBER_KEY);
 }
 
+/**
+ * =========================================================
+ * HTTP REQUEST
+ * =========================================================
+ */
 async function request<T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -88,7 +95,10 @@ async function request<T = any>(
     }
 
     if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
+      headers.set(
+        "Authorization",
+        `Bearer ${token}`
+      );
     }
 
     const response = await fetch(
@@ -114,10 +124,14 @@ async function request<T = any>(
       result = {
         success: false,
         message:
-          text || "Invalid response received from server.",
+          text ||
+          "Invalid response received from server.",
       };
     }
 
+    // ------------------------------------------------------
+    // Authentication expired
+    // ------------------------------------------------------
     if (response.status === 401) {
       clearAuthToken();
 
@@ -131,6 +145,9 @@ async function request<T = any>(
       );
     }
 
+    // ------------------------------------------------------
+    // Permission denied
+    // ------------------------------------------------------
     if (response.status === 403) {
       throw new Error(
         result.message ||
@@ -138,6 +155,9 @@ async function request<T = any>(
       );
     }
 
+    // ------------------------------------------------------
+    // Other HTTP errors
+    // ------------------------------------------------------
     if (!response.ok) {
       throw new Error(
         result.message ||
@@ -171,10 +191,11 @@ async function request<T = any>(
   }
 }
 
-/* =========================================================
-   AUTHENTICATION
-========================================================= */
-
+/**
+ * =========================================================
+ * AUTHENTICATION
+ * =========================================================
+ */
 async function login(
   email: string,
   password: string,
@@ -194,7 +215,10 @@ async function login(
   });
 
   if (result.success && result.data?.token) {
-    setAuthToken(result.data.token, remember);
+    setAuthToken(
+      result.data.token,
+      remember
+    );
   }
 
   return result;
@@ -204,18 +228,20 @@ function logout(): void {
   clearAuthToken();
 }
 
-/* =========================================================
-   DASHBOARD
-========================================================= */
-
+/**
+ * =========================================================
+ * DASHBOARD
+ * =========================================================
+ */
 function getDashboard() {
   return request("/dashboard");
 }
 
-/* =========================================================
-   PRODUCTS
-========================================================= */
-
+/**
+ * =========================================================
+ * PRODUCTS
+ * =========================================================
+ */
 function getProducts(
   params?: Record<string, string>
 ) {
@@ -270,10 +296,11 @@ function deleteProduct(id: string) {
   );
 }
 
-/* =========================================================
-   CATEGORIES
-========================================================= */
-
+/**
+ * =========================================================
+ * CATEGORIES
+ * =========================================================
+ */
 function getCategories() {
   return request("/categories");
 }
@@ -366,10 +393,11 @@ function deleteCategory(
   );
 }
 
-/* =========================================================
-   BRANDS
-========================================================= */
-
+/**
+ * =========================================================
+ * BRANDS
+ * =========================================================
+ */
 function getBrands() {
   return request("/brands");
 }
@@ -418,10 +446,11 @@ function deleteBrand(id: string) {
   );
 }
 
-/* =========================================================
-   SUPPLIERS
-========================================================= */
-
+/**
+ * =========================================================
+ * SUPPLIERS
+ * =========================================================
+ */
 function getSuppliers(
   params?: Record<string, string>
 ) {
@@ -480,10 +509,11 @@ function deleteSupplier(
   );
 }
 
-/* =========================================================
-   CUSTOMERS
-========================================================= */
-
+/**
+ * =========================================================
+ * CUSTOMERS
+ * =========================================================
+ */
 function getCustomers(
   params?: Record<string, string>
 ) {
@@ -542,10 +572,11 @@ function deleteCustomer(
   );
 }
 
-/* =========================================================
-   SALES
-========================================================= */
-
+/**
+ * =========================================================
+ * SALES
+ * =========================================================
+ */
 function getSales(
   params?: Record<string, string>
 ) {
@@ -569,10 +600,26 @@ function createSale(data: any) {
   });
 }
 
-/* =========================================================
-   PURCHASES
-========================================================= */
+/**
+ * Delete a sale permanently.
+ *
+ * The backend is responsible for enforcing permissions
+ * and performing the actual deletion.
+ */
+function deleteSale(id: string) {
+  return request(
+    `/sales/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    }
+  );
+}
 
+/**
+ * =========================================================
+ * PURCHASES
+ * =========================================================
+ */
 function getPurchases(
   params?: Record<string, string>
 ) {
@@ -596,10 +643,11 @@ function createPurchase(data: any) {
   });
 }
 
-/* =========================================================
-   EXPENSES
-========================================================= */
-
+/**
+ * =========================================================
+ * EXPENSES
+ * =========================================================
+ */
 function getExpenses(
   params?: Record<string, string>
 ) {
@@ -647,10 +695,11 @@ function deleteExpense(
   );
 }
 
-/* =========================================================
-   RETURNS
-========================================================= */
-
+/**
+ * =========================================================
+ * RETURNS
+ * =========================================================
+ */
 function getReturns(
   params?: Record<string, string>
 ) {
@@ -674,10 +723,11 @@ function createReturn(data: any) {
   });
 }
 
-/* =========================================================
-   STOCK
-========================================================= */
-
+/**
+ * =========================================================
+ * STOCK
+ * =========================================================
+ */
 function getStock(
   params?: Record<string, string>
 ) {
@@ -726,9 +776,11 @@ function adjustStock(stockData: any) {
 
     adjustmentType: String(
       stockData?.adjustmentType ??
-      (stockData?.type === "OUT"
-        ? "ADJUSTMENT_OUT"
-        : "ADJUSTMENT_IN")
+      (
+        stockData?.type === "OUT"
+          ? "ADJUSTMENT_OUT"
+          : "ADJUSTMENT_IN"
+      )
     ),
 
     reason: String(
@@ -753,10 +805,11 @@ function adjustStock(stockData: any) {
   );
 }
 
-/* =========================================================
-   USERS
-========================================================= */
-
+/**
+ * =========================================================
+ * USERS
+ * =========================================================
+ */
 function getUsers(
   params?: Record<string, string>
 ) {
@@ -802,10 +855,11 @@ function deactivateUser(id: string) {
   );
 }
 
-/* =========================================================
-   USER PERMISSIONS
-========================================================= */
-
+/**
+ * =========================================================
+ * USER PERMISSIONS
+ * =========================================================
+ */
 function getAllPermissions() {
   return request(
     "/users/permissions/all"
@@ -865,10 +919,11 @@ function revokeUserPermission(
   );
 }
 
-/* =========================================================
-   SETTINGS
-========================================================= */
-
+/**
+ * =========================================================
+ * SETTINGS
+ * =========================================================
+ */
 function getSettings() {
   return request("/settings");
 }
@@ -880,10 +935,11 @@ function updateSettings(data: any) {
   });
 }
 
-/* =========================================================
-   AUDIT LOGS
-========================================================= */
-
+/**
+ * =========================================================
+ * AUDIT LOGS
+ * =========================================================
+ */
 function getAuditLogs(
   params?: Record<string, string>
 ) {
@@ -894,10 +950,11 @@ function getAuditLogs(
   return request(`/audit-logs${query}`);
 }
 
-/* =========================================================
-   GENERIC HELPERS
-========================================================= */
-
+/**
+ * =========================================================
+ * GENERIC HELPERS
+ * =========================================================
+ */
 function saveRecord(
   resource: string,
   data: any,
@@ -944,10 +1001,11 @@ function deleteRecord(
   );
 }
 
-/* =========================================================
-   INVENTORY API
-========================================================= */
-
+/**
+ * =========================================================
+ * INVENTORY API
+ * =========================================================
+ */
 const inventoryApi = {
   request,
 
@@ -960,6 +1018,7 @@ const inventoryApi = {
 
   getDashboard,
 
+  // Products
   getProducts,
   getProduct,
   createProduct,
@@ -967,6 +1026,7 @@ const inventoryApi = {
   archiveProduct,
   deleteProduct,
 
+  // Categories
   getCategories,
   getCategory,
   createCategory,
@@ -974,6 +1034,7 @@ const inventoryApi = {
   archiveCategory,
   deleteCategory,
 
+  // Brands
   getBrands,
   getBrand,
   createBrand,
@@ -981,6 +1042,7 @@ const inventoryApi = {
   archiveBrand,
   deleteBrand,
 
+  // Suppliers
   getSuppliers,
   getSupplier,
   createSupplier,
@@ -988,6 +1050,7 @@ const inventoryApi = {
   archiveSupplier,
   deleteSupplier,
 
+  // Customers
   getCustomers,
   getCustomer,
   createCustomer,
@@ -995,46 +1058,57 @@ const inventoryApi = {
   archiveCustomer,
   deleteCustomer,
 
+  // Sales
   getSales,
   getSale,
   createSale,
+  deleteSale,
 
+  // Purchases
   getPurchases,
   getPurchase,
   createPurchase,
 
+  // Expenses
   getExpenses,
   getExpense,
   createExpense,
   updateExpense,
   deleteExpense,
 
+  // Returns
   getReturns,
   getReturn,
   createReturn,
 
+  // Stock
   getStock,
   getStockMovements,
   getStockItem,
   adjustStock,
 
+  // Users
   getUsers,
   getUser,
   createUser,
   updateUser,
   deactivateUser,
 
+  // Permissions
   getAllPermissions,
   getUserPermissions,
   updateUserPermissions,
   grantUserPermission,
   revokeUserPermission,
 
+  // Settings
   getSettings,
   updateSettings,
 
+  // Audit logs
   getAuditLogs,
 
+  // Generic
   saveRecord,
   deleteRecord,
 };

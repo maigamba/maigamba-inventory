@@ -56,7 +56,13 @@ export interface Customer {
   CustomerName: string;
   Phone?: string;
   Email?: string;
+
+  // Customer location
+  Country?: string;
+  State?: string;
+  City?: string;
   Address?: string;
+
   CustomerType?: string;
   AccountBalance?: number | string;
   Status: string;

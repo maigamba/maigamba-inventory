@@ -16,6 +16,8 @@ import {
   Clock3,
   Cpu,
   DollarSign,
+  Globe2,
+  MapPin,
   Download,
   Eye,
   Package,
@@ -260,6 +262,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .slice(0, 5);
   }, [sales]);
 
+  const customerIntelligence = useMemo(() => {
+    const customerMap = new Map<string, any>();
+
+    customers.forEach((customer: any) => {
+      const id = String(
+        customer?.CustomerID ?? customer?.customerId ?? customer?.id ?? '',
+      ).trim();
+      if (!id) return;
+
+      customerMap.set(id, {
+        id,
+        name: String(
+          customer?.CustomerName ?? customer?.customerName ?? customer?.name ?? '',
+        ).trim() || 'Unnamed customer',
+        phone: String(customer?.Phone ?? customer?.phone ?? '').trim(),
+        state: String(
+          customer?.State ?? customer?.state ?? customer?.stateName ?? '',
+        ).trim(),
+        country: String(
+          customer?.Country ?? customer?.country ?? customer?.countryName ?? '',
+        ).trim(),
+      });
+    });
+
+    const totals = new Map<string, { customer: any; amount: number; orders: number }>();
+
+    sales.forEach((sale: any) => {
+      const customerId = getSaleCustomerId(sale);
+      if (!customerId) return;
+
+      const customer = customerMap.get(customerId);
+      if (!customer) return;
+
+      const existing = totals.get(customerId) ?? {
+        customer,
+        amount: 0,
+        orders: 0,
+      };
+
+      existing.amount += getSaleTotal(sale);
+      existing.orders += 1;
+      totals.set(customerId, existing);
+    });
+
+    return [...totals.values()]
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
+  }, [customers, sales]);
+
   const dailySeries = useMemo(() => {
     const buckets = new Map<string, number>();
 
@@ -285,13 +336,86 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }));
   }, [salesInRange]);
 
-  const countryDataAvailable = useMemo(
-    () =>
-      customers.some((customer: any) =>
-        Boolean(customer?.Country ?? customer?.country),
-      ),
-    [customers],
-  );
+  const buyerGeography = useMemo(() => {
+    const customerLocations = new Map<
+      string,
+      { state?: string; country?: string }
+    >();
+
+    customers.forEach((customer: any) => {
+      const customerId = String(
+        customer?.CustomerID ?? customer?.customerId ?? customer?.id ?? '',
+      ).trim();
+
+      if (!customerId) return;
+
+      const state = String(
+        customer?.State ?? customer?.state ?? customer?.stateName ?? '',
+      ).trim();
+
+      const country = String(
+        customer?.Country ?? customer?.country ?? customer?.countryName ?? '',
+      ).trim();
+
+      customerLocations.set(customerId, {
+        state: state || undefined,
+        country: country || undefined,
+      });
+    });
+
+    const states = new Map<
+      string,
+      { name: string; amount: number; orders: number }
+    >();
+
+    const countries = new Map<
+      string,
+      { name: string; amount: number; orders: number }
+    >();
+
+    sales.forEach((sale: any) => {
+      const location = customerLocations.get(getSaleCustomerId(sale));
+      if (!location) return;
+
+      const amount = getSaleTotal(sale);
+
+      if (location.state) {
+        const key = location.state.toLowerCase();
+        const existing = states.get(key) ?? {
+          name: location.state,
+          amount: 0,
+          orders: 0,
+        };
+        existing.amount += amount;
+        existing.orders += 1;
+        states.set(key, existing);
+      }
+
+      if (location.country) {
+        const key = location.country.toLowerCase();
+        const existing = countries.get(key) ?? {
+          name: location.country,
+          amount: 0,
+          orders: 0,
+        };
+        existing.amount += amount;
+        existing.orders += 1;
+        countries.set(key, existing);
+      }
+    });
+
+    const rank = (
+      map: Map<string, { name: string; amount: number; orders: number }>,
+    ) =>
+      [...map.values()]
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 5);
+
+    return { states: rank(states), countries: rank(countries) };
+  }, [customers, sales]);
+
+  const stateDataAvailable = buyerGeography.states.length > 0;
+  const countryDataAvailable = buyerGeography.countries.length > 0;
 
   const quickActions = [
     {
@@ -696,7 +820,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </section>
 
-        {/* Top customers + country */}
+        {/* Customer intelligence + buyer geography */}
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex items-start justify-between gap-4">
@@ -711,37 +835,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Ranked by recorded sales value.
                 </p>
               </div>
-              <Users className="h-5 w-5 text-slate-400" />
+              <div className="rounded-xl bg-slate-50 p-2.5 text-slate-500">
+                <Users className="h-5 w-5" />
+              </div>
             </div>
 
             <div className="mt-5 space-y-3">
-              {salesByCustomer.length === 0 ? (
-                <div className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                  No customer sales data yet.
-                </div>
+              {customerIntelligence.length > 0 ? (
+                customerIntelligence.map((entry, index) => {
+                  const maxAmount = Math.max(customerIntelligence[0].amount, 1);
+                  const width = Math.max(8, Math.round((entry.amount / maxAmount) * 100));
+                  const initials = entry.customer.name
+                    .split(/\s+/)
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((part: string) => part[0]?.toUpperCase() || '')
+                    .join('');
+
+                  return (
+                    <div
+                      key={entry.customer.id}
+                      className="group rounded-xl border border-slate-100 p-3.5 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-slate-50 hover:shadow-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">
+                          {initials || index + 1}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-900">
+                                {entry.customer.name}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                                {entry.customer.state || entry.customer.country
+                                  ? [entry.customer.state, entry.customer.country].filter(Boolean).join(', ')
+                                  : 'Customer location not provided'}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-sm font-bold tabular-nums text-slate-950">
+                                {currencyCompact(entry.amount)}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-slate-400">
+                                {entry.orders} sale{entry.orders === 1 ? '' : 's'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-slate-900 transition-all duration-500 group-hover:bg-blue-600"
+                              style={{ width: `${width}%` }}
+                            />
+                          </div>
+                        </div>
+                        <span className="hidden shrink-0 text-[10px] font-bold text-slate-300 sm:block">
+                          #{index + 1}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
               ) : (
-                salesByCustomer.map((entry, index) => (
-                  <div
-                    key={entry.customerId}
-                    className="flex items-center gap-3 rounded-xl border border-slate-100 p-3"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">
-                      {index + 1}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">
-                        {getCustomerName(entry.customerId) || 'Walk-in customer'}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {entry.orders} order{entry.orders === 1 ? '' : 's'}
-                      </p>
-                    </div>
-                    <p className="text-sm font-semibold text-slate-950">
-                      {currencyCompact(entry.amount)}
-                    </p>
-                  </div>
-                ))
+                <div className="rounded-xl bg-slate-50 px-4 py-10 text-center">
+                  <Users className="mx-auto h-8 w-8 text-slate-300" />
+                  <p className="mt-2 text-sm font-semibold text-slate-700">No customer sales yet</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Completed sales linked to saved customers will appear here automatically.
+                  </p>
+                </div>
               )}
+            </div>
+
+            <div className="mt-5 flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <Users className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+              <p className="text-xs leading-5 text-slate-500">
+                Rankings are based on recorded sales value and only include sales linked to saved customer records.
+              </p>
             </div>
           </div>
 
@@ -752,50 +922,196 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   Buyer geography
                 </p>
                 <h2 className="mt-1 text-base font-semibold text-slate-950">
-                  Top countries of buyers
+                  Where your customers buy from
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  This section will use the real Country field from customer records.
+                  Ranked by completed sales value using customer State and Country.
                 </p>
               </div>
-              <Cpu className="h-5 w-5 text-slate-400" />
+              <div className="rounded-xl bg-slate-50 p-2.5 text-slate-500">
+                <Globe2 className="h-5 w-5" />
+              </div>
             </div>
 
-            {!countryDataAvailable ? (
-              <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <div className="mx-auto flex max-w-md flex-col items-center text-center">
-                  <div className="rounded-xl bg-white p-3 text-slate-500 shadow-sm">
-                    <ClipboardList className="h-5 w-5" />
+            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="group rounded-2xl border border-slate-100 bg-slate-50/70 p-4 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-lg bg-white p-2 text-slate-600 shadow-sm">
+                    <MapPin className="h-4 w-4" />
                   </div>
-                  <p className="mt-3 text-sm font-semibold text-slate-900">
-                    Country data is not yet configured
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Top state
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-slate-500">
-                    Existing customer records do not currently provide a country.
-                    We will add the field to customer records before calculating this
-                    ranking, so no location data is fabricated.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('customers')}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  >
-                    Manage customers
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
                 </div>
+                {stateDataAvailable ? (
+                  <>
+                    <p className="mt-3 truncate text-lg font-bold text-slate-950">
+                      {buyerGeography.states[0].name}
+                    </p>
+                    <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">
+                      {currencyCompact(buyerGeography.states[0].amount)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {buyerGeography.states[0].orders} sale{buyerGeography.states[0].orders === 1 ? '' : 's'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-3 text-sm font-semibold text-slate-700">No state data yet</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Add a State when creating customer records.
+                    </p>
+                  </>
+                )}
               </div>
-            ) : (
-              <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">
-                Country analytics are ready once customer country values are available
-                in the API response.
+
+              <div className="group rounded-2xl border border-slate-100 bg-slate-50/70 p-4 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-lg bg-white p-2 text-slate-600 shadow-sm">
+                    <Globe2 className="h-4 w-4" />
+                  </div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Top country
+                  </p>
+                </div>
+                {countryDataAvailable ? (
+                  <>
+                    <p className="mt-3 truncate text-lg font-bold text-slate-950">
+                      {buyerGeography.countries[0].name}
+                    </p>
+                    <p className="mt-1 text-lg font-bold tabular-nums text-slate-950">
+                      {currencyCompact(buyerGeography.countries[0].amount)}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {buyerGeography.countries[0].orders} sale{buyerGeography.countries[0].orders === 1 ? '' : 's'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-3 text-sm font-semibold text-slate-700">No country data yet</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Add a Country when creating customer records.
+                    </p>
+                  </>
+                )}
               </div>
-            )}
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                    Top states
+                  </p>
+                  <span className="text-[10px] font-medium text-slate-400">Sales value</span>
+                </div>
+                {stateDataAvailable ? (
+                  <div className="space-y-2">
+                    {buyerGeography.states.map((entry, index) => {
+                      const maxAmount = Math.max(buyerGeography.states[0].amount, 1);
+                      const width = Math.max(8, Math.round((entry.amount / maxAmount) * 100));
+                      return (
+                        <div
+                          key={`${entry.name}-${index}`}
+                          className="rounded-xl border border-slate-100 p-3 transition hover:border-slate-200 hover:bg-slate-50"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600">
+                              {index + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="truncate text-sm font-semibold text-slate-900">{entry.name}</p>
+                                <p className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">
+                                  {currencyCompact(entry.amount)}
+                                </p>
+                              </div>
+                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className="h-full rounded-full bg-slate-900 transition-all"
+                                  style={{ width: `${width}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                {entry.orders} sale{entry.orders === 1 ? '' : 's'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    No state-linked sales yet.
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                    Top countries
+                  </p>
+                  <span className="text-[10px] font-medium text-slate-400">Sales value</span>
+                </div>
+                {countryDataAvailable ? (
+                  <div className="space-y-2">
+                    {buyerGeography.countries.map((entry, index) => {
+                      const maxAmount = Math.max(buyerGeography.countries[0].amount, 1);
+                      const width = Math.max(8, Math.round((entry.amount / maxAmount) * 100));
+                      return (
+                        <div
+                          key={`${entry.name}-${index}`}
+                          className="rounded-xl border border-slate-100 p-3 transition hover:border-slate-200 hover:bg-slate-50"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600">
+                              {index + 1}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="truncate text-sm font-semibold text-slate-900">{entry.name}</p>
+                                <p className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">
+                                  {currencyCompact(entry.amount)}
+                                </p>
+                              </div>
+                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className="h-full rounded-full bg-slate-900 transition-all"
+                                  style={{ width: `${width}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                {entry.orders} sale{entry.orders === 1 ? '' : 's'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    No country-linked sales yet.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+              <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+              <p className="text-xs leading-5 text-blue-900/70">
+                Location rankings update automatically from customer records linked to sales.
+                Walk-in sales without a saved customer location are excluded from state and
+                country rankings.
+              </p>
+            </div>
           </div>
-        </section>
+        </section >
 
         {/* Recent activity */}
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        < section className="grid grid-cols-1 gap-4 xl:grid-cols-2" >
           <ActivityCard
             title="Recent sales"
             eyebrow="Sales"
@@ -873,10 +1189,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               ))
             )}
           </ActivityCard>
-        </section>
+        </section >
 
         {/* Low stock */}
-        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        < section className="rounded-2xl border border-slate-200 bg-white shadow-sm" >
           <div className="flex flex-col gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
@@ -992,10 +1308,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               })
             )}
           </div>
-        </section>
+        </section >
 
         {/* Customer / operations snapshot */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        < section className="grid grid-cols-1 gap-4 md:grid-cols-3" >
           <InfoTile
             icon={Users}
             title="Customers"
@@ -1017,8 +1333,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             description="Dashboard data from the inventory API"
             onClick={() => refreshDashboard()}
           />
-        </section>
-      </div>
+        </section >
+      </div >
 
       {/* Stock audit drawer */}
       {isAlertDrawerOpen && (
@@ -1197,7 +1513,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </div >
   );
 };
 
