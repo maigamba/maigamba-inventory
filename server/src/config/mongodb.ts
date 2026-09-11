@@ -1,7 +1,9 @@
 import mongoose from "mongoose";
 import dns from "node:dns";
 
-const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_URI = process.env.MONGODB_URI
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
 
 if (!MONGODB_URI) {
     throw new Error("MONGODB_URI is not defined in the environment variables.");
