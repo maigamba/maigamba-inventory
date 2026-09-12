@@ -1396,6 +1396,298 @@ router.post(
 
 /**
  * ============================================================================
+ * DELETE SALE
+ * ============================================================================
+ *
+ * Deletes a completed sale and restores the stock that was deducted when the
+ * sale was created.
+ *
+ * A sale that already has a return is not deleted because deleting it would
+ * leave the return record without its parent sale and could make stock
+ * history inconsistent.
+ */
+router.delete(
+    "/:id",
+    authenticate,
+    requirePermission("sales.create"),
+    validate(saleIdSchema),
+    async (
+        req: AuthenticatedRequest,
+        res,
+        next
+    ) => {
+        let session:
+            | mongoose.ClientSession
+            | undefined;
+
+        try {
+            const saleId = String(
+                req.params.id ?? ""
+            ).trim();
+
+            if (!saleId) {
+                res.status(400).json({
+                    success: false,
+                    message:
+                        "A valid Sale ID is required.",
+                });
+
+                return;
+            }
+
+            const sale =
+                await Sale.findOne({
+                    saleId,
+                }).lean();
+
+            if (!sale) {
+                res.status(404).json({
+                    success: false,
+                    message:
+                        "Sale not found.",
+                });
+
+                return;
+            }
+
+            const existingReturns =
+                await Return.countDocuments({
+                    saleId,
+                });
+
+            if (existingReturns > 0) {
+                res.status(409).json({
+                    success: false,
+                    message:
+                        "This sale cannot be deleted because it has one or more return records. Resolve the returns first.",
+                });
+
+                return;
+            }
+
+            const saleItems =
+                await SaleItem.find({
+                    saleId,
+                }).lean();
+
+            session =
+                await mongoose.startSession();
+
+            await session.withTransaction(
+                async () => {
+                    /*
+                     * Restore every product quantity that was deducted by
+                     * this sale.
+                     *
+                     * We calculate the previous/new values from the current
+                     * product quantity and record a reversal movement.
+                     */
+                    for (
+                        const item of saleItems
+                    ) {
+                        const quantity = Number(
+                            item.quantity
+                        );
+
+                        if (
+                            !Number.isFinite(
+                                quantity
+                            ) ||
+                            quantity <= 0
+                        ) {
+                            throw new Error(
+                                `Invalid quantity found for product ${item.productId}.`
+                            );
+                        }
+
+                        const product =
+                            await Product.findOne({
+                                productId:
+                                    item.productId,
+                            }).session(
+                                session!
+                            );
+
+                        if (!product) {
+                            throw new Error(
+                                `Product not found while restoring stock: ${item.productId}`
+                            );
+                        }
+
+                        const previousQuantity =
+                            Number(
+                                product.quantity
+                            );
+
+                        const newQuantity =
+                            previousQuantity +
+                            quantity;
+
+                        await Product.updateOne(
+                            {
+                                productId:
+                                    item.productId,
+                            },
+                            {
+                                $set: {
+                                    quantity:
+                                        newQuantity,
+                                },
+                            },
+                            {
+                                session,
+                            }
+                        );
+
+                        await StockMovement.create(
+                            [
+                                {
+                                    movementId:
+                                        generateMongoId(
+                                            "MOV"
+                                        ),
+
+                                    productId:
+                                        item.productId,
+
+                                    movementType:
+                                        "Sale Delete",
+
+                                    quantity,
+
+                                    previousQuantity,
+
+                                    newQuantity,
+
+                                    referenceId:
+                                        saleId,
+
+                                    reason:
+                                        `Stock restored because sale ${sale.invoiceNumber} was deleted.`,
+
+                                    createdBy:
+                                        req.user?.userId ||
+                                        sale.createdBy,
+
+                                    movementDate:
+                                        new Date(),
+                                },
+                            ],
+                            {
+                                session,
+                            }
+                        );
+                    }
+
+                    /*
+                     * Delete the child sale items first, then the parent sale.
+                     */
+                    await SaleItem.deleteMany(
+                        {
+                            saleId,
+                        },
+                        {
+                            session,
+                        }
+                    );
+
+                    await Sale.deleteOne(
+                        {
+                            saleId,
+                        },
+                        {
+                            session,
+                        }
+                    );
+                }
+            );
+
+            await session.endSession();
+            session = undefined;
+
+            console.info(
+                `[SALES] Sale deleted: ${sale.saleId} / ${sale.invoiceNumber}`
+            );
+
+            /*
+             * Audit failure must not turn a successful deletion into a failed
+             * response.
+             */
+            try {
+                await createAuditLog({
+                    userId:
+                        req.user?.userId ??
+                        sale.createdBy,
+
+                    action:
+                        "DELETE",
+
+                    module:
+                        "Sales",
+
+                    recordId:
+                        sale.saleId,
+
+                    description:
+                        `Sale deleted: Invoice ${sale.invoiceNumber}, total ${sale.totalAmount}. Stock was restored for ${saleItems.length} sale item(s).`,
+
+                    ipAddress:
+                        req.ip ||
+                        req.socket
+                            .remoteAddress ||
+                        undefined,
+                });
+            } catch (auditError) {
+                console.error(
+                    "[SALES] DELETE AUDIT ERROR:",
+                    auditError
+                );
+            }
+
+            res.json({
+                success: true,
+                message:
+                    "Sale deleted successfully and stock restored.",
+                data: {
+                    saleId:
+                        sale.saleId,
+                    invoiceNumber:
+                        sale.invoiceNumber,
+                    restoredItems:
+                        saleItems.length,
+                },
+            });
+        } catch (error) {
+            if (session) {
+                try {
+                    if (
+                        session.inTransaction()
+                    ) {
+                        await session.abortTransaction();
+                    }
+                } catch {
+                    // Ignore abort errors.
+                }
+
+                try {
+                    await session.endSession();
+                } catch {
+                    // Ignore cleanup errors.
+                }
+            }
+
+            console.error(
+                "DELETE SALE ERROR:",
+                error
+            );
+
+            next(error);
+        }
+    }
+);
+
+/**
+ * ============================================================================
  * EXPORT ROUTER
  * ============================================================================
  */
